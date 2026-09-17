@@ -1,0 +1,24 @@
+{
+  "name": "dayslots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "コマ（仮）— 1日を「時間帯の枡」で記録する iOS アプリ。やること／食事／運動…を同じ骨組みで",
+  "scripts": {
+    "dev": "vite --port 5276 --strictPort --host",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --port 5276 --strictPort",
+    "test": "vitest run",
+    "cap:sync": "npm run build && cap sync ios"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
+  }
+}

@@ -1,0 +1,48 @@
+# Codemagic — コマ iOS → TestFlight（Mac を持たずに雲の上で焼く）
+# 作法は兄弟リポ photo-memory-spike/codemagic.yaml と同じ（App Store Connect API キーで自動署名）。
+# 一度だけ Codemagic の画面で設定するもの: ①ASC API キーの登録（下の app_store_connect の名前）
+# ②環境変数グループ signing に CERTIFICATE_PRIVATE_KEY（RSA 秘密鍵・Secure）。
+# ⚠ Capacitor 8 は SPM（CocoaPods 不要）。web は Vite の dist/ を `cap sync ios` で ios/App/App/public に入れる。
+workflows:
+  ios-testflight:
+    name: コマ iOS → TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: KomaASC   # ← Codemagic に登録した ASC API キーの名前に書き換える
+    environment:
+      groups:
+        - signing
+      vars:
+        BUNDLE_ID: "io.github.yutsutke.koma"
+      node: 22
+      xcode: latest
+    scripts:
+      - name: 依存を入れる
+        script: npm ci
+      - name: web を焼いて Capacitor iOS に同期
+        script: |
+          npm run build
+          npx cap sync ios
+      - name: 署名ファイルを取得/作成し Xcode に適用
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --certificate-key @env:CERTIFICATE_PRIVATE_KEY \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+      - name: ビルド番号を上げて archive
+        script: |
+          cd ios/App
+          agvtool new-version -all $(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1)) || true
+          cd ../..
+          xcode-project build-ipa --workspace ios/App/App.xcworkspace --scheme App
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

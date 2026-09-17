@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+# Capacitor が生成する（cap sync で毎回作り直す）
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/build/
+ios/App/Pods/
+ios/App/DerivedData/

@@ -1,0 +1,10 @@
+{
+  "appId": "io.github.yutsutke.koma",
+  "appName": "コマ",
+  "webDir": "dist",
+  "backgroundColor": "#141a21",
+  "ios": {
+    "backgroundColor": "#141a21",
+    "contentInset": "always"
+  }
+}
