@@ -9,7 +9,8 @@ import type { Entry, Track, YMD, Minute, CalendarMapRow } from '../domain/types'
 import { bucketOf } from '../domain/slots';
 import type { Repo } from '../app/repo';
 
-export interface CalendarEvent { entryId: string; title: string; date: YMD; startMin: Minute; endMin: Minute; description: string; }
+/** allDay＝終日（時刻が無い記録＝「時間帯なし」など）。時刻ありなら startMin/endMin が入る */
+export interface CalendarEvent { entryId: string; title: string; date: YMD; allDay: boolean; startMin: Minute | null; endMin: Minute | null; description: string; }
 
 export interface CalendarPort {
   readonly name: string;
@@ -18,25 +19,29 @@ export interface CalendarPort {
   remove(eventId: string): Promise<void>;
 }
 
-/** 記録 → 出す予定。出さないなら null */
+/** 記録 → 出す予定。出さないなら null。
+ *  時刻が無い記録（「時間帯なし」・枡だけ）は**終日**で出す（ゆう 2026-09-18「だしてください」）＝嘘の時刻は作らない代わりに、日は伝える */
 export function eventFor(track: Track, e: Entry): CalendarEvent | null {
   if (!track.features.calendar || !e.calendar) return null;
   const useActual = track.features.actualFirst || (e.doneAt != null && e.actualStart != null);
   const date = useActual && e.actualDate ? e.actualDate : e.date;
   const start = useActual ? (e.actualStart ?? e.planStart) : e.planStart;
-  if (start == null) return null;
+  const slotOf = track.slots.find((s) => s.key === bucketOf(track, e));
+  if (start == null) {
+    const desc = [slotOf ? `${slotOf.icon} ${slotOf.label}` : '', e.doneAt ? '✅ 済' : '', e.note ?? ''].filter(Boolean).join('\n');
+    return { entryId: e.id, title: `${track.icon} ${e.title}`, date, allDay: true, startMin: null, endMin: null, description: desc };
+  }
   // 終わり＝実際の終わり／予定の終わり。実際で出すのに実際の終わりが無ければ、予定の長さを写す（無ければ30分）
   const planLen = e.planStart != null && e.planEnd != null ? e.planEnd - e.planStart : 30;
   const rawEnd = useActual ? (e.actualEnd ?? start + planLen) : (e.planEnd ?? start + 30);
   const end = Math.min(1440, Math.max(rawEnd, start + 5));
-  const slot = track.slots.find((s) => s.key === bucketOf(track, e));
-  const desc = [slot ? `${slot.icon} ${slot.label}` : '', e.doneAt ? '✅ 済' : '', e.note ?? ''].filter(Boolean).join('\n');
-  return { entryId: e.id, title: `${track.icon} ${e.title}`, date, startMin: start, endMin: end, description: desc };
+  const desc = [slotOf ? `${slotOf.icon} ${slotOf.label}` : '', e.doneAt ? '✅ 済' : '', e.note ?? ''].filter(Boolean).join('\n');
+  return { entryId: e.id, title: `${track.icon} ${e.title}`, date, allDay: false, startMin: start, endMin: end, description: desc };
 }
 
 /** 中身の指紋（同じなら書かない＝往復のこだまを止める）。暗号ではないので短い djb2 で足りる */
 export function contentHash(ev: CalendarEvent): string {
-  const s = JSON.stringify([ev.title, ev.date, ev.startMin, ev.endMin, ev.description]);
+  const s = JSON.stringify([ev.title, ev.date, ev.allDay, ev.startMin, ev.endMin, ev.description]);
   let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(16);
 }

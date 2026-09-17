@@ -3,7 +3,8 @@
 ## 現在地（2026-09-17）
 
 - ✅ Phase 0＝リポ・言葉・枡と 🔁 の規則・端末で動く画面・検査（v1）。
-- ▶ 次＝**本人に聞く5つ**（SPEC.md §11：名前／取り込み／Supabase 同じか別か／AI 書き起こし／時間帯なしの終日）→ Phase 1（iPhone で触る）。
+- ✅ v2（2026-09-18）＝GitHub Pages（public・https://yutsutke.github.io/dayslots/ ）／「時間帯なし」を Google に終日で／AI 書き起こしを Phase 2 に。
+- ▶ 次＝**本人に聞く3つ**（SPEC.md §11：名前／取り込み／Supabase 同じか別か）→ Phase 1（iPhone で触る）。
 
 ## Phase 1 — iPhone で触る
 - [ ] `npx cap add ios`（Windows でも殻は作れる。`cap sync` は Codemagic 上で）
@@ -16,6 +17,7 @@
 - [ ] Capacitor Camera で撮る／写真から選ぶ。長辺 1568 ＋ サムネ 320 に縮小（ライフログと同じ）
 - [ ] 升目のチップに写真を出す（週は サムネだけ）
 - [ ] 写真の置き場（v1 は端末・Phase 3 で Supabase Storage）。⭐ と共有＝消すときは両方を数える
+- [ ] **AI 書き起こし**（決定 2026-09-18）: Edge Function `koma-ai`（ライフログ `meals` 関数の AI の節を写す・鍵は `ai_settings`）。写真 → 要約／詳細／料理の行／出どころ＋理由。status（todo/pending/done/error）を記録に持つ。**数値は作らせない**。人が直した後は読ませ直す前に確かめる（`edited_at`）
 
 ## Phase 3 — Supabase の置き場
 - [ ] `supabase/migrations/0001_init.sql` を本人が当てる（同じプロジェクトか別か＝先に決める）
@@ -24,7 +26,7 @@
 - [ ] 複数端末の衝突（updated_at の新しい方が勝つ、で足りるか）
 
 ## Phase 4 — 📅 Google カレンダー
-- [ ] Edge Function `koma-gcal`（`{op:'upsert'|'remove'}`）。ライフログ `gcal` の token 取り回しを写す（7日失効の罠＝本番昇格）
+- [ ] Edge Function `koma-gcal`（`{op:'upsert'|'remove'}`）。ライフログ `gcal` の token 取り回しを写す（7日失効の罠＝本番昇格）。`allDay:true` は Google の終日（date のみ）で作る
 - [ ] 設定の「いま送る」→ 記録を保存したら自動で送る（未送信の数を帯に出すのは v1 で済み）
 - [ ] 出したものの色（Google のカレンダーを分けるか）
 

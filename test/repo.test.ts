@@ -99,17 +99,20 @@ describe('⭐ いつもの', () => {
 });
 
 describe('📅 カレンダーに出すもの', () => {
-  it('時刻が無い記録は出さない。枡だけの記録も出さない', async () => {
+  it('時刻が無い記録（枡だけ・時間帯なし）は終日で出す。「出す」を立てていない記録は出さない', async () => {
     const r = await open();
     const t = r.track('t-todo');
-    expect(eventFor(t, r.addEntry('t-todo', { title: 'x', date: TODAY, slotKey: 'afternoon', calendar: true }))).toBeNull();
+    const ev = eventFor(t, r.addEntry('t-todo', { title: 'x', date: TODAY, slotKey: 'afternoon', calendar: true }));
+    expect(ev).toMatchObject({ date: TODAY, allDay: true, startMin: null, endMin: null });
+    expect(ev?.description).toMatch(/午後/);
     expect(eventFor(t, r.addEntry('t-todo', { title: 'x', date: TODAY, planStart: 600, calendar: false }))).toBeNull();
+    expect(eventFor(r.track('t-meal'), r.addEntry('t-meal', { title: 'x', date: TODAY, calendar: true }))).toBeNull(); // 種目が 📅 を使わない
   });
   it('予定の時刻で出る。✅ 済で実際の時刻があれば実際で出る', async () => {
     const r = await open();
     const t = r.track('t-todo');
     const e = r.addEntry('t-todo', { title: 'x', date: TODAY, planStart: 600, planEnd: 630, calendar: true });
-    expect(eventFor(t, e)).toMatchObject({ date: TODAY, startMin: 600, endMin: 630, title: '◻️ x' });
+    expect(eventFor(t, e)).toMatchObject({ date: TODAY, allDay: false, startMin: 600, endMin: 630, title: '◻️ x' });
     r.updateEntry(e.id, { doneAt: 'now', actualDate: '2026-09-18', actualStart: 700, actualEnd: null });
     expect(eventFor(t, e)).toMatchObject({ date: '2026-09-18', startMin: 700, endMin: 730 });
   });

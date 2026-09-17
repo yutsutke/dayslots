@@ -56,8 +56,8 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
     out.push(field('メモ', h('textarea', { rows: 2, value: d.note ?? '', oninput: (e: Event) => { d.note = (e.target as HTMLTextAreaElement).value || null; } })));
     if (track.features.calendar) {
       out.push(field('📅 Google カレンダー',
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: d.calendar, onchange: (e: Event) => { d.calendar = (e.target as HTMLInputElement).checked; draw(); } }), ' 時刻つきで出す'),
-        hint(ev ? `出る予定: ${ev.date} ${fmtMin(ev.startMin)}–${fmtMin(ev.endMin)}「${ev.title}」` : d.calendar ? '⚠ 時刻が無いので出ません（枡だけの記録はカレンダーに出しません）' : '')));
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: d.calendar, onchange: (e: Event) => { d.calendar = (e.target as HTMLInputElement).checked; draw(); } }), ' 出す'),
+        hint(ev ? `出る予定: ${ev.date} ${ev.allDay ? '終日' : `${fmtMin(ev.startMin as number)}–${fmtMin(ev.endMin as number)}`}「${ev.title}」${ev.allDay ? '（時刻が無いので終日）' : ''}` : '')));
     }
     out.push(field('⭐ いつもの', h('div', { class: 'inline' },
       h('select', { onchange: (e: Event) => { const t = tpls.find((x) => x.id === (e.target as HTMLSelectElement).value); if (t) { repo.applyTemplate(t, d, d.slotKey); draw(); } } },

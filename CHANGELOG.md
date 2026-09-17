@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## v2 — 開発のページ（GitHub Pages）・終日で出す・AI 書き起こしを段階に（2026-09-18）
+
+**背景**
+- ゆう「いつも通り開発のページで見れるようにしたい／プライベートが無理なら公開にしても大丈夫」「食事の AI 書き起こし＝いれてください」「時間帯なしを Google に終日で＝だしてください」。
+- 本人が `npm run dev` を打つと **Port 5276 is already in use**＝Claude の preview_start が握っていた（memory の既知の罠）。
+
+**設計判断**
+- GitHub Pages は private では使えない（API が 422「plan does not support」）→ **public に変更**（本人の許可あり）。Actions で 検査 → 焼く → 出す（`pages.yml`）。
+- 📅 時刻の無い記録は**終日**で出す（`CalendarEvent.allDay`）。説明欄に枡の名前を入れる＝「午後にやる」は伝わる・嘘の時刻は作らない。
+- AI 書き起こしは Phase 2（写真と一緒）。鍵はサーバ側（Edge Function `koma-ai`）＝ライフログと同じ。数値は作らせない。
+
+**結果**
+- 検査 41 本通過。Pages の URL: https://yutsutke.github.io/dayslots/
+
 ## v1 — 全体像＝リポ・骨組み・端末で動く画面（2026-09-17）
 
 **背景**

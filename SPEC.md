@@ -23,7 +23,7 @@
 | 🔁 繰り返し | `todo_recurring`＋`recurOccurrences`：自動／確認、未来に作らない、(recur_id, recur_date) unique、例外 | `Rule`＋`occurrences()`（規則をそのまま写した）。全種目で使える | ✅ v1 |
 | 休日＝土日＋祝日＋有給 | `isHoliday`・`custom_holidays` | 同じ。⚙ で休みを足す | ✅ v1 |
 | 重要度・🏷 集計ラベル | `priority`・`tag` | 同じ列 | ✅ v1（tag は器だけ） |
-| 📷 食事の写真・AI 書き起こし | `meals.path/thumb`・Edge Function `meals`（AI） | 写真は Phase 2（Capacitor Camera）。AI 書き起こしは Phase 5（要るなら） | ⏳ |
+| 📷 食事の写真・AI 書き起こし | `meals.path/thumb`・Edge Function `meals`（AI・`ai_settings` に鍵） | 写真と AI 書き起こしは **Phase 2**（ゆう 2026-09-18「いれてください」）。要約／詳細／料理の行／出どころ を書き起こし、**数値（カロリー等）は作らせない**。鍵はサーバ側（Edge Function `koma-ai`）＝ライフログと同じ | ⏳ Phase 2 |
 | 📋 一覧（期限だけ決まったもの） | `due_date`・「まだ」の一覧 | 期限の列は今は持たない（要るとき足す） | ⏳ |
 | 場所・地図 | `lat/lon/place_name` | 持たない（ライフログの仕事） | ✗ |
 | 📅 Google カレンダー | Edge Function `gcal`（双方向・地平線・map） | 片方向（出す）から。Edge Function 方式は同じ | ⏳ Phase 4 |
@@ -72,7 +72,7 @@
 
 ## 7. 📅 Google カレンダー
 
-- **何を出すか**＝時刻がある記録で、本人が「出す」を立てたものだけ。枡だけ（「午後にやる」）の記録は出さない＝カレンダーに嘘の時刻を作らない。✅ 済で実際の時刻があれば実際で出す。
+- **何を出すか**＝本人が「出す」を立てた記録。時刻があれば**その時刻**で、時刻が無い（枡だけ・「時間帯なし」）なら**終日**で出す（ゆう 2026-09-18「だしてください」）＝嘘の時刻は作らず、日と枡の名前（説明欄）は伝える。✅ 済で実際の時刻があれば実際で出す。
 - **どう出すか**＝ライフログの `gcal` と同じ **Edge Function 方式**（Google の refresh token はサーバの Secret に置き、画面は合図だけ）。関数名 `koma-gcal`。呼ぶ形は `src/sync/calendar.ts` の `GoogleViaEdgeFunction` に先に決めてある（`{op:'upsert'|'remove', event, eventId}`）。
 - 記録 ⇔ Google の予定の対応は `calendarMap`（中身の指紋つき＝同じなら書かない）。出さなくなった記録は Google 側を消す。
 - 代案（検討のみ）＝端末で Google にログインする OAuth。利用者が本人だけなので、いまは Edge Function 方式が手間が少ない（ライフログで動いている・7日失効の罠の回避も済んでいる）。
@@ -103,15 +103,19 @@
 | --- | --- | --- |
 | 0 | リポ・骨組み・言葉・枡と 🔁 の規則・端末で動く画面・検査 | ✅ この回（v1） |
 | 1 | iPhone で触る：Capacitor iOS の殻を足す → Codemagic → TestFlight。実機で枡の幅・板の押しやすさを直す | ▶ 次 |
-| 2 | 📷 写真（Capacitor Camera・縮小して保存）。食事の升目に写真を出す | |
+| 2 | 📷 写真（Capacitor Camera・縮小して保存）。食事の升目に写真を出す。**AI 書き起こし**（写真 → 要約・詳細・料理・出どころ。Edge Function `koma-ai`・鍵はサーバ） | |
 | 3 | Supabase の置き場（`koma_` の表＋Edge Function `koma`）。複数端末で同じ記録。ライフログ `todos`/`meals` の取り込み（一度だけ） | |
 | 4 | 📅 Edge Function `koma-gcal`（Google に出す・消す）。設定画面の「いま送る」が実際に動く | |
-| 5 | 発展＝📊 数える（枡別・種目別の週次）、期限だけ決まったやることの一覧、AI の書き起こし（食事）、ライフログ 📊 への表示 | 本人と決める |
+| 5 | 発展＝📊 数える（枡別・種目別の週次）、期限だけ決まったやることの一覧、ライフログ 📊 への表示 | 本人と決める |
 
 ## 11. まだ決めていないこと（本人に聞く）
 
 1. **名前**（コマ／dayslots は仮）と bundle id（`io.github.yutsutke.koma` は仮）。
 2. **ライフログの記録を取り込むか**（一度だけ写す／写さず新しく始める／両方に書く）。Phase 3 の入口で決める。
 3. **Supabase は同じプロジェクトか別か**。同じなら 📊 で一緒に数えやすい。別なら壊す心配が無い。
-4. **食事の AI 書き起こし**（写真 → 要約）をこの app にも要るか。ライフログにある機能なので、写真だけで足りる可能性もある。
-5. **「時間帯なし」の記録を Google に終日で出すか**（v1 は出さない）。
+
+**決まったこと（2026-09-18・ゆう）**: 食事の AI 書き起こしは**入れる**（Phase 2）／「時間帯なし」の記録は Google に**終日で出す**（v2 で実装）／リポは **public**（GitHub Pages で開発のページを出すため＝private では Pages が使えない）。
+
+## 12. 開発のページ
+
+main に push すると GitHub Actions が 検査 → 焼く → **https://yutsutke.github.io/dayslots/** に出す（`.github/workflows/pages.yml`）。あの日・声で入れるカレンダーと同じく、iPhone の Safari で開いて触れる（記録はその端末の中）。
