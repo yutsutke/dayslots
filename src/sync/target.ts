@@ -116,7 +116,25 @@ export function mergeRemote(remote: Db, local: Db): Db {
 export class Syncer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   busy = false;
-  constructor(private getDb: () => Db, private setDb: (d: Db) => void, private onState: (msg: string, err?: boolean) => void, private saveQuiet: () => void = () => {}) {}
+  constructor(private getDb: () => Db, private setDb: (d: Db) => void, private onState: (msg: string, err?: boolean) => void, private saveQuiet: () => void = () => {},
+    /** 初めてつなぐ端末で、外に写しが既にあるときに聞く＝'pull' 外を取り込む／'push' この端末を外へ／'cancel' */
+    private choose: (info: { savedAt: ISO; entries: number; localEntries: number }) => Promise<'pull' | 'push' | 'cancel'> = async () => 'cancel') {}
+  /** この端末がまだ一度も外と合わせていない＝「新しい方が勝つ」で自動に決めてはいけない（見本データの方が時刻は新しい） */
+  private firstTime(): boolean { return !this.getDb().settings.storage?.remoteSavedAt; }
+  private async firstSync(t: SyncTarget, interactive: boolean): Promise<'pulled' | 'pushed' | 'choice' | 'none'> {
+    const local = this.getDb(); const remote = await t.pull();
+    if (!remote || 'same' in remote) { await this.send(t); this.mark(null); return 'pushed'; } // 外に何も無い＝送ってよい
+    if (!interactive) { this.onState('☁ この端末は初めてつなぎます。⚙ →「今 合わせる」で、外の写しを取り込むか・この端末を送るか選んでください'); return 'choice'; }
+    const c = await this.choose({ savedAt: remote.savedAt, entries: remote.doc.entries.length, localEntries: local.entries.length });
+    if (c === 'pull') {
+      const s = local.settings.storage; if (s) { s.lastPushedAt = new Date().toISOString(); s.remoteSavedAt = remote.doc.savedAt ?? remote.savedAt; }
+      // 初めての取り込みは**丸ごと置き換え**（この端末の中身は見本か古い試し書き）。鍵と保存場所の設定だけ端末のものを残す
+      this.setDb({ ...remote.doc, window: null, deleted: [], settings: { ...remote.doc.settings, ai: local.settings.ai, storage: local.settings.storage } });
+      this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${remote.doc.entries.length} 件）`); return 'pulled';
+    }
+    if (c === 'push') { await this.send(t); this.mark(null); return 'pushed'; }
+    return 'none';
+  }
   target(): SyncTarget | null { return targetFor(this.getDb().settings.storage); }
   schedulePush(): void {
     const t = this.target(); if (!t?.configured()) return;
@@ -125,6 +143,7 @@ export class Syncer {
   }
   async pushNow(): Promise<void> {
     const t = this.target(); if (!t?.configured() || this.busy) return;
+    if (this.firstTime()) { await this.pullIfNewer(false); return; } // 初めての端末は勝手に送らない
     this.busy = true;
     try { const how = await this.send(t); this.mark(null); this.onState(`☁ ${t.name} に保存 ${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}（${how}）`); }
     catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); }
@@ -146,10 +165,11 @@ export class Syncer {
     return how;
   }
   /** 開いたとき＝外が新しければ取り込む（端末の方が新しければ押し出す） */
-  async pullIfNewer(): Promise<'pulled' | 'pushed' | 'same' | 'none'> {
-    const t = this.target(); if (!t?.configured()) return 'none';
+  async pullIfNewer(interactive = false): Promise<'pulled' | 'pushed' | 'same' | 'choice' | 'none'> {
+    const t = this.target(); if (!t?.configured() || this.busy) return 'none';
     this.busy = true;
     try {
+      if (this.firstTime()) return await this.firstSync(t, interactive);
       const local = this.getDb();
       const remote = await t.pull(local.savedAt); // 外が新しくなければ中身は落ちてこない
       if (!remote) { await this.send(t); this.mark(null); return 'pushed'; }

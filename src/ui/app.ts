@@ -15,7 +15,7 @@ import { Syncer } from '../sync/target';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v14';
+export const BUILD = 'v15';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -30,7 +30,14 @@ export async function boot(el: HTMLElement): Promise<void> {
   repo = await Repo.open(new LocalStore(), () => seedDb());
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   // ☁ 保存場所（外の写し）＝保存のたびに少し待って押し出す。開いたときは外が新しければ取り込む
-  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); });
+  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); },
+    async (info) => {
+      if (confirm(`外に写しがあります（保存 ${info.savedAt.slice(0, 16).replace('T', ' ')}・記録 ${info.entries} 件）。\nこの端末の記録は ${info.localEntries} 件です。\n\nOK＝外の写しを取り込む（この端末のいまの内容は置き換わります）\nキャンセル＝取り込まない`)) return 'pull';
+      if (confirm('では、この端末の内容を外へ送って、外の写しを置き換えますか？\n（外の写しは消えます。分からなければキャンセル）')) return 'push';
+      return 'cancel';
+    });
+  // 画面に戻ってきたら外を確かめる（別の端末で足した記録が出る）。外が新しくなければ中身は落ちてこない＝軽い
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void syncer.pullIfNewer(); });
   repo.onPersist = () => syncer.schedulePush();
   render();
   void syncer.pullIfNewer();
