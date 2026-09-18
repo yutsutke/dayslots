@@ -10,6 +10,8 @@ import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '..
 import { DriveTarget, type StorageKind } from '../sync/target';
 import { exportSqlite } from '../export/sqlite';
 import { syncer } from './app';
+import { buildReview } from '../app/review';
+import { todayYMD } from '../domain/dates';
 
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
@@ -86,6 +88,13 @@ export function openSettings(ctx: Ctx): void {
         h('button', { class: 'primary', onclick: async () => { const r = await syncer.pullIfNewer(true); alert(r === 'pulled' ? '外の写しを取り込みました' : r === 'pushed' ? '端末の内容を外へ保存しました' : r === 'same' ? '同じでした' : st.storage?.lastError ? '接続できませんでした（下の赤い文字を見てください）' : '何もしませんでした'); m.close(); ctx.render(); } }, '☁ 今 合わせる'),
         h('small', null, st.storage?.lastSync ? `最後 ${st.storage.lastSync.slice(5, 16).replace('T', ' ')}` : 'まだ合わせていない'),
         st.storage?.lastError ? h('small', { class: 'errs' }, `⚠ ${st.storage.lastError}`) : null) : null,
+
+      h('h3', null, '📝 振り返りの要約（AI に渡す読み物）'),
+      h('p', { class: 'hint' }, '直近7日ぶんを、種目ごと・時刻と長さと印つきの短い文章にしたもの。送るたびに作り直して、Supabase の koma_docs.review（Google ドライブなら koma-review.md）に置きます。AI はこれだけ読めば足ります。'),
+      h('div', { class: 'btns' }, ([7, 14, 31] as const).map((n) => h('button', { onclick: () => {
+        const r = buildReview(repo, todayYMD(), n); const ta = h('textarea', { rows: 18, value: r.text, readOnly: true, style: { fontFamily: 'ui-monospace, monospace', fontSize: '12px' } });
+        modal(`📝 振り返りの要約（${n}日・${r.text.length.toLocaleString()} 文字）`, h('div', null, ta, h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: async () => { try { await navigator.clipboard.writeText(r.text); alert('コピーしました'); } catch { ta.select(); } } }, '📋 コピー'))), { wide: true });
+      } }, `${n}日ぶんを見る`))),
 
       h('h3', null, 'データ'),
       h('div', { class: 'btns' },

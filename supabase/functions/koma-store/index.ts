@@ -2,6 +2,7 @@
 //   GET  /functions/v1/koma-store[?since=ISO] → { doc, saved_at }（無ければ 404）。since 以降に変わっていなければ { same:true, saved_at }＝丸ごと落とさない
 //   PUT  /functions/v1/koma-store {doc}       → 丸ごと置き換え { ok, saved_at }
 //   PUT  /functions/v1/koma-store {delta}     → 差分を当てる { ok, saved_at, entries }。土台（baseSavedAt）が食い違えば 409＝端末が丸ごと送り直す
+//   どちらの PUT も review（📝 振り返りの要約）を一緒に受け取り、列 review に置く（AI は select review->>'text' だけ読めば足りる）
 //   守り＝ヘッダ x-koma-secret が Secret KOMA_SECRET と一致するときだけ（ライフログの合言葉方式と同じ）
 // ⚠ 表は supabase/migrations/0002_koma_docs.sql を先に当てる。Secret KOMA_SECRET を Edge Functions の Secrets に入れる。
 // ⚠ delta.ts は src/sync/delta.ts の写し（同じ規則を2か所に書かない＝test が一致を検査する）。
@@ -35,7 +36,8 @@ Deno.serve(async (req) => {
   }
 
   if (req.method === 'PUT') {
-    const b = await req.json().catch(() => null) as { doc?: DocLike; delta?: Delta } | null;
+    const b = await req.json().catch(() => null) as { doc?: DocLike; delta?: Delta; review?: unknown } | null;
+    const rv = b?.review && typeof b.review === 'object' ? { review: b.review } : {};   // 要約が無ければ前のを残す
     if (b?.delta) {
       const d = b.delta;
       if (!d.savedAt || !Array.isArray(d.upserts) || !Array.isArray(d.deletes)) return json({ error: 'bad request' }, 400);
@@ -45,13 +47,13 @@ Deno.serve(async (req) => {
       // 土台が違う（別の端末が先に書いた・写しが無い）＝当てない。端末は丸ごと送り直す
       if (!base || (base.savedAt ?? '') !== d.baseSavedAt) return json({ error: 'conflict', remote_saved_at: base?.savedAt ?? null }, 409);
       const next = applyDelta(base, d);
-      const { error: e2 } = await sb.from('koma_docs').upsert({ id, doc: next, saved_at: d.savedAt, updated_at: new Date().toISOString() });
+      const { error: e2 } = await sb.from('koma_docs').upsert({ id, doc: next, saved_at: d.savedAt, updated_at: new Date().toISOString(), ...rv });
       if (e2) return json({ error: 'db error', detail: e2.message }, 500);
       return json({ ok: true, saved_at: d.savedAt, entries: next.entries.length });
     }
     if (!b?.doc || b.doc.version !== 1) return json({ error: 'bad request' }, 400);
     const saved_at = b.doc.savedAt ?? new Date().toISOString();
-    const { error } = await sb.from('koma_docs').upsert({ id, doc: b.doc, saved_at, updated_at: new Date().toISOString() });
+    const { error } = await sb.from('koma_docs').upsert({ id, doc: b.doc, saved_at, updated_at: new Date().toISOString(), ...rv });
     if (error) return json({ error: 'db error', detail: error.message }, 500);
     return json({ ok: true, saved_at });
   }

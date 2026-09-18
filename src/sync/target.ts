@@ -29,9 +29,10 @@ export interface SyncTarget {
   configured(): boolean;
   /** 外の写し（無ければ null）。since を渡し、外がそれより新しくなければ中身を落とさず { same } を返せる */
   pull(since?: ISO): Promise<{ doc: Db; savedAt: ISO } | { same: true; savedAt: ISO } | null>;
-  push(doc: Db): Promise<void>;
+  /** review＝📝 振り返りの要約（AI が読む短い文章）。一緒に置ける所は置く */
+  push(doc: Db, review?: unknown): Promise<void>;
   /** 差分だけ送る（できる所だけ）。'conflict'＝外の土台が違う → 呼び手が丸ごと送り直す */
-  pushDelta?(d: Delta): Promise<'ok' | 'conflict'>;
+  pushDelta?(d: Delta, review?: unknown): Promise<'ok' | 'conflict'>;
 }
 
 export class DriveTarget implements SyncTarget {
@@ -44,9 +45,11 @@ export class DriveTarget implements SyncTarget {
     const doc = JSON.parse(await getFileText(tok, hit.id)) as Db;
     return { doc, savedAt: doc.savedAt ?? hit.modifiedTime };
   }
-  async push(doc: Db): Promise<void> {
+  async push(doc: Db, review?: unknown): Promise<void> {
     const tok = await driveToken(this.s.driveClientId ?? '');
     await putFile(tok, folderIdOf(this.s.driveFolder ?? ''), 'koma.json', new Blob([JSON.stringify(doc)], { type: 'application/json' }), 'application/json');
+    const text = (review as { text?: string } | undefined)?.text;   // 要約は読み物として同じフォルダに（AI に Drive から読ませるとき用）
+    if (text) await putFile(tok, folderIdOf(this.s.driveFolder ?? ''), 'koma-review.md', new Blob([text], { type: 'text/markdown' }), 'text/markdown');
   }
   /** SQLite など別の書き出しも同じフォルダへ */
   async putExtra(name: string, body: Blob, mime: string): Promise<void> {
@@ -69,14 +72,14 @@ export class SupabaseTarget implements SyncTarget {
     if (j?.same) return { same: true, savedAt: j.saved_at };
     return j?.doc ? { doc: j.doc, savedAt: j.doc.savedAt ?? j.saved_at } : null;
   }
-  async pushDelta(d: Delta): Promise<'ok' | 'conflict'> {
-    const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ delta: d }) });
+  async pushDelta(d: Delta, review?: unknown): Promise<'ok' | 'conflict'> {
+    const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ delta: d, review }) });
     if (r.status === 409) return 'conflict';
     if (!r.ok) throw new Error(`Supabase に書けませんでした（HTTP ${r.status}）`);
     return 'ok';
   }
-  async push(doc: Db): Promise<void> {
-    const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ doc }) });
+  async push(doc: Db, review?: unknown): Promise<void> {
+    const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ doc, review }) });
     if (!r.ok) throw new Error(`Supabase に書けませんでした（HTTP ${r.status}）`);
   }
 }
@@ -118,7 +121,9 @@ export class Syncer {
   busy = false;
   constructor(private getDb: () => Db, private setDb: (d: Db) => void, private onState: (msg: string, err?: boolean) => void, private saveQuiet: () => void = () => {},
     /** 初めてつなぐ端末で、外に写しが既にあるときに聞く＝'pull' 外を取り込む／'push' この端末を外へ／'cancel' */
-    private choose: (info: { savedAt: ISO; entries: number; localEntries: number }) => Promise<'pull' | 'push' | 'cancel'> = async () => 'cancel') {}
+    private choose: (info: { savedAt: ISO; entries: number; localEntries: number }) => Promise<'pull' | 'push' | 'cancel'> = async () => 'cancel',
+    /** 📝 振り返りの要約を作る係（送るたびに作り直して一緒に置く） */
+    private review: () => unknown = () => undefined) {}
   /** この端末がまだ一度も外と合わせていない＝「新しい方が勝つ」で自動に決めてはいけない（見本データの方が時刻は新しい） */
   private firstTime(): boolean { return !this.getDb().settings.storage?.remoteSavedAt; }
   private async firstSync(t: SyncTarget, interactive: boolean): Promise<'pulled' | 'pushed' | 'choice' | 'none'> {
@@ -153,12 +158,13 @@ export class Syncer {
   private async send(t: SyncTarget): Promise<string> {
     const db = this.getDb(); const s = db.settings.storage; const started = new Date().toISOString();
     const out = forExport(db); let how = '丸ごと';
+    let rv: unknown; try { rv = this.review(); } catch { rv = undefined; } // 要約が作れなくても記録は送る
     const sentDeletes = [...(db.deleted ?? [])];
     if (t.pushDelta && s?.lastPushedAt && s.remoteSavedAt) {
       const d = buildDelta(out as unknown as DocLike, s.lastPushedAt, s.remoteSavedAt, sentDeletes);
-      if ((await t.pushDelta(d)) === 'ok') how = `差分 ${d.upserts.length} 件${d.deletes.length ? `・削除 ${d.deletes.length}` : ''}`;
-      else await t.push(out);
-    } else await t.push(out);
+      if ((await t.pushDelta(d, rv)) === 'ok') how = `差分 ${d.upserts.length} 件${d.deletes.length ? `・削除 ${d.deletes.length}` : ''}`;
+      else await t.push(out, rv);
+    } else await t.push(out, rv);
     if (s) { s.lastPushedAt = started; s.remoteSavedAt = out.savedAt ?? ''; }
     db.deleted = (db.deleted ?? []).filter((id) => !sentDeletes.includes(id));
     this.saveQuiet();

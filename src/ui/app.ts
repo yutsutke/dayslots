@@ -12,10 +12,11 @@ import { speechAvailable, listen } from './voice';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
 import { Syncer } from '../sync/target';
+import { buildReview } from '../app/review';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v15';
+export const BUILD = 'v16';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -35,7 +36,7 @@ export async function boot(el: HTMLElement): Promise<void> {
       if (confirm(`外に写しがあります（保存 ${info.savedAt.slice(0, 16).replace('T', ' ')}・記録 ${info.entries} 件）。\nこの端末の記録は ${info.localEntries} 件です。\n\nOK＝外の写しを取り込む（この端末のいまの内容は置き換わります）\nキャンセル＝取り込まない`)) return 'pull';
       if (confirm('では、この端末の内容を外へ送って、外の写しを置き換えますか？\n（外の写しは消えます。分からなければキャンセル）')) return 'push';
       return 'cancel';
-    });
+    }, () => buildReview(repo, todayYMD(), 7));
   // 画面に戻ってきたら外を確かめる（別の端末で足した記録が出る）。外が新しくなければ中身は落ちてこない＝軽い
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void syncer.pullIfNewer(); });
   repo.onPersist = () => syncer.schedulePush();
