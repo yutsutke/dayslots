@@ -5,12 +5,14 @@
  *  ぶつかったとき＝**新しい方（savedAt）が勝つ**。開いたときに外の方が新しければ取り込み、保存のたびに少し待ってから押し出す。
  *  ⚠ 行単位の同期（複数端末で同時に書く）は Phase 3 の宿題。いまは「1人が1台ずつ使う」を前提にした丸ごと同期。
  */
-import type { Db, ISO } from '../domain/types';
+import type { Db, ISO, YMD } from '../domain/types';
+import { todayYMD, addDays } from '../domain/dates';
 import { driveToken, folderIdOf, findFile, putFile, getFileText } from './drive';
 
 export type StorageKind = 'local' | 'drive' | 'supabase';
 export interface StorageSettings {
   kind: StorageKind;
+  windowDays?: number | null; // 送る期間（日）。null/省略＝すべて。31＝直近1か月ぶんだけ送る（まとめて分析したいときだけ長くする）
   driveClientId?: string;   // Google Cloud で作る OAuth の Client ID（ウェブ）
   driveFolder?: string;     // フォルダの URL か ID
   supabaseUrl?: string;     // https://xxxx.supabase.co
@@ -71,14 +73,30 @@ export function targetFor(s: StorageSettings | undefined): SyncTarget | null {
   return s.kind === 'drive' ? new DriveTarget(s) : new SupabaseTarget(s);
 }
 
-/** 外に出す形＝鍵（🤖 BYOK）と保存場所の設定は**送らない**（鍵は端末ごとに入れる・外の写しに秘密を置かない） */
-export function forExport(doc: Db): Db {
-  const { ai: _ai, storage: _st, ...rest } = doc.settings;
-  return { ...doc, settings: rest as Db['settings'] };
+/** 外に出す形。
+ *  ・鍵（🤖 BYOK）と保存場所の設定は**送らない**（鍵は端末ごとに入れる・外の写しに秘密を置かない）
+ *  ・送る期間（windowDays）があれば、記録は**その日から先のぶんだけ**（種目・⭐・🔁・設定はいつも全部＝小さい）。
+ *    写しに window.from を書いておく＝取り込む側が「この日より前は入っていない」と分かる */
+export function forExport(doc: Db, today: YMD = todayYMD()): Db {
+  const { ai: _ai, storage: st, ...rest } = doc.settings;
+  const days = st?.windowDays ?? null;
+  if (!days || days <= 0) return { ...doc, window: null, settings: rest as Db['settings'] };
+  const from = addDays(today, -days);
+  const keep = new Set(doc.entries.filter((e) => e.date >= from || (e.actualDate ?? '') >= from).map((e) => e.id));
+  return { ...doc, window: { from }, entries: doc.entries.filter((e) => keep.has(e.id)), calendarMap: doc.calendarMap.filter((m) => keep.has(m.entryId)), settings: rest as Db['settings'] };
 }
-/** 取り込む形＝外の写しに、この端末の鍵と保存場所の設定を戻す */
-function merged(remote: Db, local: Db): Db {
-  return { ...remote, settings: { ...remote.settings, ai: local.settings.ai, storage: local.settings.storage } };
+/** 取り込む形。
+ *  ・この端末の鍵と保存場所の設定を戻す
+ *  ・外の写しが期間つき（window.from）なら、**その日から先だけ**を外のもので置き換え、それより前の記録は端末のものを残す
+ *    （残さないと、1か月ぶんの写しを取り込んだ瞬間に古い記録が端末から消える） */
+export function mergeRemote(remote: Db, local: Db): Db {
+  const settings = { ...remote.settings, ai: local.settings.ai, storage: local.settings.storage };
+  const from = remote.window?.from;
+  if (!from) return { ...remote, window: null, settings };
+  const inWin = (e: { date: YMD; actualDate: YMD | null }) => e.date >= from || (e.actualDate ?? '') >= from;
+  const old = local.entries.filter((e) => !inWin(e));
+  const oldIds = new Set(old.map((e) => e.id));
+  return { ...remote, window: null, entries: [...old, ...remote.entries.filter((e) => !oldIds.has(e.id))], calendarMap: [...local.calendarMap.filter((m) => oldIds.has(m.entryId)), ...remote.calendarMap], settings };
 }
 
 /** 同期の係＝保存のたびに 3 秒待ってから押し出す。開いたときは外が新しければ取り込む */
@@ -107,7 +125,7 @@ export class Syncer {
       const remote = await t.pull(); const local = this.getDb();
       if (!remote) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
       const r = remote.savedAt, l = local.savedAt ?? '';
-      if (r > l) { this.setDb(merged(remote.doc, local)); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled'; }
+      if (r > l) { this.setDb(mergeRemote(remote.doc, local)); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled'; }
       if (l > r) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
       this.mark(null); return 'same';
     } catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); return 'none'; }
