@@ -96,6 +96,21 @@ td.mcell .ghostTxt { color: var(--ghost); }
 td.mcell .box.big { display: block; margin: 2px auto; }
 td.mcell .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ⊞ すべて（週＝日 × 種目） */
+table.allgrid td.cell.all { min-width: 110px; font-size: 12px; cursor: pointer; }
+table.allgrid td.cell.all.done { background: var(--ok-bg); border-color: var(--ok); }
+table.allgrid td.cell.all.skip { background: var(--skip-bg); border-color: var(--skip); }
+table.allgrid td.cell.all .dn { font-weight: 600; margin-bottom: 2px; }
+table.allgrid td.cell.all .mini { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+table.allgrid td.cell.all .mini.done { color: var(--ok); }
+table.allgrid td.cell.all .mini.skip { color: var(--skip); text-decoration: line-through; }
+table.allgrid td.cell.all .mini .t { color: var(--dim); margin: 0 2px; }
+table.allgrid td.cell.all .box.big { display: block; margin: 0 auto; }
+table.allgrid td.cell.all .sub { display: block; text-align: center; }
+table.allgrid td.cell.all .ghostTxt { color: var(--ghost); }
+.lnk { cursor: pointer; }
+.review .lnk:hover { text-decoration: underline; }
+
 footer { padding: 10px; color: var(--dim); font-size: 11px; text-align: center; }
 
 /* 板（下から出る） */

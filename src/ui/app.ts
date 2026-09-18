@@ -1,6 +1,6 @@
 /* 画面の骨＝上の帯（種目タブ・週/1日/月・日送り・⭐🔁⚙）＋ 見直しの帯 ＋ 升目（週・月）か一覧（1日）
  *  一日一回の種目（features.daily）は、升目が「その日の印」1つになる（なし → ✅ → 🚫 → なし を1タップで回す） */
-import { h } from './dom';
+import { h, hint } from './dom';
 import { Repo } from '../app/repo';
 import { LocalStore } from '../store/store';
 import { seedDb } from '../store/seed';
@@ -12,7 +12,9 @@ import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v4';
+export const BUILD = 'v5';
+/** 種目タブの「⊞ すべて」＝種目をまたいで見る（v5 は週だけ。1日・月は触ってから） */
+const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
 type View = 'week' | 'day' | 'month';
@@ -56,7 +58,14 @@ function range(): [YMD, YMD] {
 }
 
 export function render(): void {
-  if (!repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
+  if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
+  if (state.trackId === ALL) {
+    if (state.view !== 'week') state.view = 'week'; // ⊞ すべて は v5 では週だけ
+    const [from, to] = range();
+    repo.ensureAuto(from, to);
+    root.replaceChildren(header(null, from, to), allWeek(from, to), footer());
+    return;
+  }
   const track = repo.track(state.trackId);
   const [from, to] = range();
   repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）
@@ -71,12 +80,14 @@ function move(dir: 1 | -1): void {
   render();
 }
 
-function header(track: Track, from: YMD, to: YMD): HTMLElement {
+function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
+  const all = track == null;
   const tabs = h('div', { class: 'tabs' },
+    h('button', { class: all ? 'on' : '', title: '種目をまたいで見る（週＝日 × 種目）', onclick: () => { state.trackId = ALL; render(); } }, '⊞ すべて'),
     repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
     h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える', onclick: () => openSettings(ctx()) }, '⚙'));
   const label = state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
-  const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
+  const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', disabled: all && v !== 'week', title: all && v !== 'week' ? '「すべて」の 1日・月 は、週を触ってから作る' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },
     h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'), seg('month', '月')),
     h('button', { onclick: () => move(-1) }, '◀'),
@@ -85,11 +96,55 @@ function header(track: Track, from: YMD, to: YMD): HTMLElement {
     h('button', { onclick: () => { state.anchor = todayYMD(); render(); } }, '今日'),
     viewToggles(),
     h('span', { class: 'sp' }),
-    h('button', { onclick: () => openTemplates(ctx(), track) }, '⭐ いつもの'),
-    h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
-    h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'));
-  return h('header', null, tabs, nav, reviewBar(track, from, to));
+    track ? [
+      h('button', { onclick: () => openTemplates(ctx(), track) }, '⭐ いつもの'),
+      h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
+      h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
+    ] : hint('足す・⭐・🔁 は種目のタブで'));
+  return h('header', null, tabs, nav, track ? reviewBar(track, from, to) : allReviewBar(from, to));
 }
+
+/** ⊞ すべて の帯＝種目ごとの数を横に並べる（押すとその種目へ） */
+function allReviewBar(from: YMD, to: YMD): HTMLElement {
+  const parts = repo.tracks.map((t) => {
+    const s = repo.summary(t.id, from, to);
+    const body = isDaily(t) ? `✅${s.done} 🔥${repo.streak(t.id, todayYMD())}日` : t.features.done ? `✅${s.done}/${s.total}${s.skipped ? ` 🚫${s.skipped}` : ''}` : `${s.total}件`;
+    return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
+  });
+  const pend = pending(repo).length;
+  return h('div', { class: 'review' }, h('b', null, '🗓 週の見直し（すべて）'), h('span', { class: 'sp' }), parts,
+    pend ? h('span', { class: 'warn' }, `📅 未送信 ${pend}`) : null);
+}
+
+// ── ⊞ すべて（週＝縦7日 × 横＝種目） ─────────────────────────
+function allWeek(from: YMD, to: YMD): HTMLElement {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
+  const today = todayYMD();
+  const go = (t: Track, d: YMD) => { state.trackId = t.id; state.view = 'day'; state.anchor = d; render(); };
+  const cell = (t: Track, d: YMD): HTMLElement => {
+    if (isDaily(t)) {
+      const e = repo.dayEntry(t.id, d);
+      return h('td', { class: `cell all ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''}` },
+        h('button', { class: 'box big', onclick: () => { repo.toggleDay(t.id, d); render(); } }, dayMark(e)),
+        h('small', { class: 'sub lnk', onclick: () => go(t, d) }, dayDetail(e) || ' '));
+    }
+    const es = repo.entriesFor(t.id, d, d), gs = repo.ghostsFor(t.id, d, d);
+    const done = es.filter((e) => e.doneAt).length, skip = es.filter((e) => e.skippedAt).length;
+    const head = t.features.done ? (es.length ? `✅${done}/${es.length}${skip ? ` 🚫${skip}` : ''}` : '') : es.length ? `${t.icon}${es.length}` : '';
+    return h('td', { class: 'cell all', onclick: () => go(t, d) },
+      head ? h('div', { class: 'dn' }, head, gs.length ? h('small', { class: 'ghostTxt' }, ` 🔁${gs.length}`) : null) : gs.length ? h('div', { class: 'dn ghostTxt' }, `🔁${gs.length}`) : null,
+      es.slice(0, 3).map((e) => { const m = primaryMinute(t, e); return h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` },
+        t.features.done ? (e.doneAt ? '✅' : e.skippedAt ? '🚫' : '◻️') : '', show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title); }),
+      es.length > 3 ? h('small', { class: 'sub' }, `＋${es.length - 3}`) : null);
+  };
+  return h('div', { class: 'gridWrap' }, h('table', { class: 'grid allgrid' },
+    h('thead', null, h('tr', null, h('th', { class: 'dcol' }),
+      repo.tracks.map((t) => h('th', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, h('div', null, `${t.icon} ${t.name}`), h('small', null, isDaily(t) ? '一日一回' : `${t.slots.length} 枡`))))),
+    h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
+      h('th', { class: 'dcol' }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)])),
+      repo.tracks.map((t) => cell(t, d)))))));
+}
+
 
 /** 見直しの帯（ライフログの緑の帯を写した）＝✅／🚫／まだ／🔁 の数。一日一回は 連続日数 も */
 function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
