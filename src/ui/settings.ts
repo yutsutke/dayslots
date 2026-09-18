@@ -40,6 +40,11 @@ export function openSettings(ctx: Ctx): void {
         h('span', null, `未送信 ${pend} 件`),
         h('button', { onclick: async () => { const r = await syncAll(repo, new GoogleViaEdgeFunction(st.supabaseUrl, st.calendarSecret)); alert(`送った ${r.sent} · 消した ${r.removed}` + (r.errors.length ? `\n⚠ ${r.errors.join('\n')}` : '')); draw(); } }, 'いま送る')),
 
+      h('h3', null, '⏵ 進行中（合図の「開始」「終了」）'),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.autoStop ?? true, onchange: (e: Event) => { st.autoStop = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 「開始」で他の進行中を自動で終了する', hint('一度に走るのは1つ（Now Then の「次をタップで前が止まる」）。外すと並行して走れる')),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.skipBreaksStreak ?? false, onchange: (e: Event) => { st.skipBreaksStreak = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 🚫「今日は無し」で 🔥 連続日数を切る', hint('既定は切らない＝🚫 は「やった／やっていない」とは別の第3の状態（Way of Life・Loop）')),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.notify ?? false, onchange: async (e: Event) => { const on = (e.target as HTMLInputElement).checked; if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') { const p = await Notification.requestPermission(); if (p !== 'granted') { (e.target as HTMLInputElement).checked = false; alert('通知が許可されませんでした'); return; } } st.notify = on; void repo.persist(); } }), ' 長く走りすぎたら OS の通知でも知らせる', hint('上限は種目ごと（✏️ の「進行中の上限」・既定 180 分）。画面の上の1行には設定に関係なく出る')),
+
       h('h3', null, '🤖 AI（BYOK＝本人の鍵）'),
       h('p', { class: 'hint' }, '🧾 レシート・🍽 食事の写真を読ませるための鍵。鍵は**この端末の中だけ**に置き、AI の会社（Anthropic か Google）へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。'),
       field('呼び先', h('select', { onchange: (e: Event) => { const p = (e.target as HTMLSelectElement).value as AiProvider; st.ai = { provider: p, key: st.ai?.key ?? '', model: AI_DEFAULT_MODEL[p] }; void repo.persist(); draw(); } },
@@ -85,6 +90,7 @@ function openTrackEditor(ctx: Ctx, track: Track, onSaved: () => void): void {
         chk('📅 時刻つきの記録を Google カレンダーに出せる', () => d.features.calendar, (v) => { d.features.calendar = v; }, '記録ごとに出す／出さないを選べる'),
         chk('「実際」を主にする', () => d.features.actualFirst, (v) => { d.features.actualFirst = v; }, '食事のように、食べた時刻で枡を決める（外すと予定の時刻で決める）'),
         chk('一日一回（1タップで ✅／🚫）', () => Boolean(d.features.daily), (v) => { d.features.daily = v; }, '座禅・薬のように「その日やったか」だけを付ける種目。週・月の升目が1タップの印になる。時刻やメモは「…」から足せる'),
+        field('⏵ 進行中の上限', h('div', { class: 'inline' }, h('input', { type: 'number', min: 0, step: 30, value: d.features.maxRunMin === null ? '' : (d.features.maxRunMin ?? 180), placeholder: '聞かない', style: { width: '5em' }, oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); d.features.maxRunMin = (e.target as HTMLInputElement).value === '' || v <= 0 ? null : v; } }), '分', hint('これを超えて走っていたら「まだ続いていますか？」と聞く。空＝聞かない'))),
         field('🤖 写真を AI に読ませる', h('select', { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; d.features.ai = v === '' ? null : (v as 'receipt' | 'meal'); } },
           [['', '読ませない'], ['receipt', '🧾 レシートとして（店・日時・合計・品目）'], ['meal', '🍽 食事として（要約・料理・出どころ）']].map(([v, l]) => h('option', { value: v, selected: (d.features.ai ?? '') === v }, l))))),
       h('h4', null, '枡（時間帯）'),

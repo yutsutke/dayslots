@@ -109,11 +109,21 @@ export class Repo {
     if (e.skippedAt) { if (this.hasDetails(e)) return this.setSkipped(e.id, false); this.deleteEntry(e.id); return null; }
     return this.setDone(e.id, true);
   }
-  /** 連続 ✅ の日数（upTo から後ろへ数える。upTo 当日が未記録なら前日から数える＝今日まだやっていなくても途切れ扱いにしない） */
+  /** 連続 ✅ の日数（upTo から後ろへ数える）。
+   *  ・upTo 当日が未記録なら前日から数える（今日まだやっていなくても途切れ扱いにしない）
+   *  ・🚫「やらなかった」は既定で**飛ばす**（連続を切らない第3の状態＝Way of Life の Skip／Loop の Skip）。⚙ で「切る」にもできる */
   streak(trackId: string, upTo: YMD): number {
+    const breaks = this.db.settings.skipBreaksStreak ?? false;
     let d = upTo, n = 0;
-    if (!this.dayEntry(trackId, d)?.doneAt) d = addDays(d, -1);
-    while (this.dayEntry(trackId, d)?.doneAt) { n++; d = addDays(d, -1); }
+    const e0 = this.dayEntry(trackId, d);
+    if (!e0?.doneAt && !(e0?.skippedAt && !breaks)) d = addDays(d, -1);
+    for (let guard = 0; guard < 3660; guard++) {
+      const e = this.dayEntry(trackId, d);
+      if (e?.doneAt) n++;
+      else if (e?.skippedAt && !breaks) { /* 飛ばす */ }
+      else break;
+      d = addDays(d, -1);
+    }
     return n;
   }
 
@@ -255,8 +265,14 @@ export class Repo {
     const label = `${t.icon} ${title}`;
     switch (sig.verb) {
       case 'start': {
+        // 「次を開始すると前が止まる」（Now Then）＝同じものが走っていれば二重に始めず、他の進行中は自動で終了（⚙ で切れる）
+        const stopped: string[] = [];
+        for (const run of this.running()) {
+          if (run.trackId === t.id && run.title === title) continue;
+          if (this.db.settings.autoStop ?? true) { this.stop(run.id, at); stopped.push(`${this.track(run.trackId).icon} ${run.title}`); }
+        }
         const e = fresh({ actualDate: today, actualStart: at, actualDur: sig.dur });
-        return { kind: 'started', entry: e, message: `⏵ ${label} を ${fmt(at)} に開始` };
+        return { kind: 'started', entry: e, message: `⏵ ${label} を ${fmt(at)} に開始${stopped.length ? `（${stopped.join('・')} を終了）` : ''}` };
       }
       case 'end': {
         const open = this.openFor(t.id, title, today);
@@ -298,8 +314,22 @@ export class Repo {
     return r;
   }
   dropInbox(id: string): void { this.db.inbox = (this.db.inbox ?? []).filter((x) => x.id !== id); void this.persist(); }
-  /** ⏵ を「今」で終了 */
-  stop(entryId: string): Entry { const e = this.mustEntry(entryId); const t = this.track(e.trackId); return this.updateEntry(entryId, { actualEnd: Math.max(nowMinute(), (e.actualStart ?? 0) + 1), doneAt: t.features.done ? nowIso() : e.doneAt, payload: { ...e.payload, signal: 'pair' } }); }
+  /** ⏵ を終了（既定＝今。at を渡せばその時刻＝「開始から N 分で終了」にも使う） */
+  stop(entryId: string, at: number = nowMinute()): Entry {
+    const e = this.mustEntry(entryId); const t = this.track(e.trackId);
+    const end = Math.min(1440, Math.max(at, (e.actualStart ?? 0) + 1));
+    return this.updateEntry(entryId, { actualEnd: end, doneAt: t.features.done ? nowIso() : e.doneAt, payload: { ...e.payload, signal: 'pair' } });
+  }
+  /** 経過分（今日の記録だけ。昨夜からのものは 24:00 をまたいだ分を足す） */
+  elapsed(e: Entry, now: number = nowMinute()): number {
+    const start = e.actualStart ?? 0; const days = Math.max(0, this.daysAgo(e.date));
+    return days * 1440 + now - start;
+  }
+  private daysAgo(d: YMD): number { const a = new Date(`${d}T00:00:00Z`).getTime(), b = new Date(`${this.today()}T00:00:00Z`).getTime(); return Math.round((b - a) / 86400000); }
+  /** 長すぎる進行中＝種目の上限（既定 180 分・null＝聞かない）を超えたもの */
+  overdue(now: number = nowMinute()): Entry[] {
+    return this.running().filter((e) => { const lim = this.track(e.trackId).features.maxRunMin; if (lim === null) return false; return this.elapsed(e, now) > (lim ?? 180); });
+  }
 
   // ── 見渡す・データ ─────────────────────────────────────
   summary(trackId: string, from: YMD, to: YMD): { total: number; done: number; skipped: number; open: number; ghosts: number } {

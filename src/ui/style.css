@@ -129,6 +129,13 @@ button.sm { padding: 2px 6px; font-size: 12px; }
 .rcpt table.items { border-collapse: collapse; margin-top: 4px; }
 .rcpt table.items td { padding: 1px 6px 1px 0; border-top: 1px solid var(--line); font-size: 12px; }
 .rcpt table.items td.n { text-align: right; font-variant-numeric: tabular-nums; }
+/* ⏵ 進行中の常時1行（Timery の走行中の帯） */
+.runStrip { margin: 0 0 6px; }
+.runRow { display: flex; gap: 8px; align-items: center; padding: 5px 10px; margin-bottom: 3px; border: 1px solid var(--accent); border-radius: 10px; background: rgba(56, 139, 253, .12); font-size: 13px; }
+.runRow b { font-variant-numeric: tabular-nums; }
+.runRow.late { border-color: var(--skip); background: var(--skip-bg); }
+.runRow .ask { color: var(--skip); font-weight: 600; }
+
 /* 合図の入力欄・進行中・未振り分け */
 .sigBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
 .sigBar .grow { flex: 1 1 260px; }

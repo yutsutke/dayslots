@@ -64,7 +64,7 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
     if (track.features.done) {
       out.push(field('状態', h('div', { class: 'btns' },
         h('button', { class: d.doneAt ? 'on' : '', onclick: () => { d.doneAt = d.doneAt ? null : new Date().toISOString(); if (d.doneAt) { d.skippedAt = null; d.actualDate ??= d.date; } draw(); } }, '✅ やった'),
-        h('button', { class: d.skippedAt ? 'on' : '', onclick: () => { d.skippedAt = d.skippedAt ? null : new Date().toISOString(); if (d.skippedAt) d.doneAt = null; draw(); } }, '🚫 やらなかった'),
+        h('button', { class: d.skippedAt ? 'on' : '', title: '今日は無し（🔥 連続日数は切れない・第3の状態）', onclick: () => { d.skippedAt = d.skippedAt ? null : new Date().toISOString(); if (d.skippedAt) d.doneAt = null; draw(); } }, '🚫 今日は無し'),
         !isNew ? h('button', { title: '元は 🚫 で閉じ、代わりにやったことを ✅ で足す', onclick: () => { const t = prompt('代わりに何をやりましたか？'); if (!t) return; repo.upsertEntry(d); repo.doInstead(d.id, t); m.close(); ctx.render(); } }, '🔀 代わりに…') : null),
         priorityButtons(() => d.priority, (p) => { d.priority = p; draw(); })));
     }

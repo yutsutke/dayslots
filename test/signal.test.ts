@@ -59,14 +59,35 @@ describe('合図 → 記録（applySignal）', () => {
     expect(b.entry).toMatchObject({ actualStart: 480, actualEnd: 520 }); expect(b.entry?.doneAt).not.toBeNull();
     expect(r.running()).toHaveLength(0);
   });
-  it('片方だけ＝終了だけ来たら「終わりだけ」の行を作る。開始が2回来たら2行', async () => {
+  it('片方だけ＝終了だけ来たら「終わりだけ」の行を作る', async () => {
     const r = await open();
     const e = r.applySignal('座禅 6:00 終了');
     expect(e.kind).toBe('ended'); expect(e.entry).toMatchObject({ trackId: 't-zazen', actualStart: null, actualEnd: 360 });
-    r.applySignal('座禅 7:00 開始'); r.applySignal('座禅 7:30 開始');
+  });
+  it('「次を開始すると前が止まる」＝別のものを開始したら、走っていたものはその時刻で終了（⚙ で切ると並行して走る）', async () => {
+    const r = await open();
+    const a = r.applySignal('座禅 7:00 開始');
+    const b = r.applySignal('散歩 7:30 開始');
+    expect(b.message).toMatch(/座禅 を終了/);
+    expect(a.entry).toMatchObject({ actualStart: 420, actualEnd: 450 }); expect(a.entry?.doneAt).not.toBeNull();
+    expect(r.running().map((x) => x.title)).toEqual(['朝散歩']);
+    r.db.settings.autoStop = false;
+    r.applySignal('座禅 8:00 開始');
+    expect(r.running()).toHaveLength(2);                // 並行
+    r.applySignal('座禅 8:30 開始');                    // 同じものの二重開始＝そのまま（前は止めない・新しい行が増える）
     expect(r.running('t-zazen')).toHaveLength(2);
-    r.applySignal('座禅 8:00 終了');                // 直近（7:30）と組む
-    expect(r.running('t-zazen').map((x) => x.actualStart)).toEqual([420]);
+  });
+  it('長すぎる進行中＝種目の上限（既定 180 分）を超えたら「まだ続いていますか？」の対象。上限の分で終わったことにできる', async () => {
+    const r = await open();
+    const a = r.applySignal('散歩 6:00 開始');
+    expect(r.overdue(8 * 60)).toHaveLength(0);          // 120 分
+    expect(r.overdue(9 * 60 + 1)).toHaveLength(1);      // 181 分
+    r.track('t-act').features.maxRunMin = 60;
+    expect(r.overdue(7 * 60 + 1).map((e) => e.id)).toEqual([a.entry?.id]);
+    r.track('t-act').features.maxRunMin = null;         // 聞かない
+    expect(r.overdue(23 * 60)).toHaveLength(0);
+    r.stop(a.entry!.id, 6 * 60 + 60);
+    expect(a.entry?.actualEnd).toBe(7 * 60);
   });
   it('解けない名前は未振り分けへ。あとで種目に振れる', async () => {
     const r = await open();

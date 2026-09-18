@@ -14,7 +14,7 @@ import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v10';
+export const BUILD = 'v11';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -29,6 +29,13 @@ export async function boot(el: HTMLElement): Promise<void> {
   repo = await Repo.open(new LocalStore(), () => seedDb());
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   render();
+  // ⏵ 進行中の経過分を1分ごとに描き直す（記録は触らない＝時刻から計算するだけ。長すぎれば OS の通知も）
+  setInterval(() => { if (repo.running().length) { notifyOverdue(); render(); } }, 60_000);
+}
+const notified = new Set<string>();
+function notifyOverdue(): void {
+  if (!(repo.db.settings.notify ?? false) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  for (const e of repo.overdue()) { if (notified.has(e.id)) continue; notified.add(e.id); const t = repo.track(e.trackId); new Notification(`${t.icon} ${e.title} はまだ続いていますか？`, { body: `${fmtMin(e.actualStart as number)} に開始・${fmtDur(repo.elapsed(e))} 経過。アプリで ⏹ 終了できます`, tag: e.id }); }
 }
 const ctx = (): Ctx => ({ repo, render, anchor: () => state.anchor });
 const isDaily = (t: Track) => Boolean(t.features.daily);
@@ -103,7 +110,22 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
       h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
     ] : hint('足す・⭐・🔁 は種目のタブで'));
-  return h('header', null, tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox());
+  return h('header', null, runningStrip(), tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox());
+}
+
+/** ⏵ 進行中を**常時1行**（Timery の走行中の帯を写した）＝どのタブでも一番上。経過分・⏹・長すぎれば「まだ続いていますか？」 */
+function runningStrip(): HTMLElement | null {
+  const run = repo.running(); if (!run.length) return null;
+  const over = new Set(repo.overdue().map((e) => e.id));
+  return h('div', { class: 'runStrip' }, run.map((e) => {
+    const t = repo.track(e.trackId); const el = repo.elapsed(e); const late = over.has(e.id);
+    return h('div', { class: 'runRow' + (late ? ' late' : '') },
+      h('span', { class: 'lnk', onclick: () => openEntryForm(ctx(), t, e) }, `⏵ ${t.icon} ${e.title} `, h('small', null, `${fmtMin(e.actualStart as number)}〜 `), h('b', null, fmtDur(Math.max(0, el)))),
+      late ? h('span', { class: 'ask' }, 'まだ続いていますか？') : null,
+      h('span', { class: 'sp' }),
+      late && t.features.maxRunMin !== null ? h('button', { class: 'sm', title: '上限の分で終わったことにする', onclick: () => { repo.stop(e.id, (e.actualStart as number) + (t.features.maxRunMin ?? 180)); lastToast = `⏹ ${t.icon} ${e.title} を ${fmtDur(t.features.maxRunMin ?? 180)} で終了`; render(); } }, `⏹ ${fmtDur(t.features.maxRunMin ?? 180)} で終了`) : null,
+      h('button', { class: 'sm primary', onclick: () => { repo.stop(e.id); lastToast = `⏹ ${t.icon} ${e.title} を終了`; render(); } }, '⏹ 今 終了'));
+  }));
 }
 
 /** 合図の入力欄＝全体（名前を解く）／種目（名前は省いてよい）。Enter か「入れる」で通す */
@@ -127,7 +149,7 @@ function signalBar(track: Track | null): HTMLElement {
   const run = repo.running(track?.id);
   return h('div', { class: 'sigBar' },
     h('span', { class: 'inline grow' }, inp, mic, h('button', { class: 'primary', onclick: () => go() }, '入れる')),
-    run.length ? h('button', { class: 'runBtn', title: '進行中の記録（押して終了）', onclick: () => openRunning() }, `⏵ 進行中 ${run.length}`) : null,
+    run.length ? h('button', { class: 'runBtn ghost sm', title: '進行中の一覧', onclick: () => openRunning() }, `⏵ ${run.length}`) : null,
     lastToast ? h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast) : null);
 }
 function openRunning(): void {
@@ -250,7 +272,7 @@ function dayDetail(e: Entry | undefined): string {
 function dailyWeek(track: Track, from: YMD): HTMLElement {
   const today = todayYMD();
   return h('div', { class: 'day daily' },
-    h('p', { class: 'hint' }, `印を押すと なし → ✅ → 🚫 → なし。時刻やメモは「…」から。`),
+    h('p', { class: 'hint' }, `印を押すと なし → ✅ → 🚫（今日は無し・連続は切れない） → なし。時刻やメモは「…」から。`),
     Array.from({ length: 7 }, (_, i) => addDays(from, i)).map((d) => {
       const e = repo.dayEntry(track.id, d);
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },

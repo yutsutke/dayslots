@@ -31,6 +31,7 @@ export interface TrackFeatures {
   actualFirst: boolean; // 「実際」を主にする（食事＝食べた事実）／false＝「予定」を主にする（やること）
   daily?: boolean;      // 一日一回（座禅・薬）＝その日に ✅／🚫 を1タップ。詳細（時刻・メモ）は任意。省略＝false
   ai?: 'receipt' | 'meal' | null; // 🤖 写真を AI に読ませる種類（本人の鍵＝BYOK）。省略＝読ませない
+  maxRunMin?: number | null;      // ⏵ 進行中がこの分を超えたら「まだ続いていますか？」と聞く（Toggl の長時間通知の写し）。省略＝180分・null＝聞かない
 }
 
 export interface Track {
@@ -144,6 +145,9 @@ export interface Settings {
   weekStart: 0 | 1;            // 週の始まり 0=日曜／1=月曜
   show?: ShowFlags;            // 省略＝既定（時刻・分・写真は出す、コメントは出さない）
   ai?: { provider: 'anthropic' | 'gemini'; key: string; model: string }; // 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）
+  autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true
+  skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
+  notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）
 }

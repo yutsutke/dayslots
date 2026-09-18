@@ -117,14 +117,20 @@ describe('一日一回（座禅）＝1タップで なし → ✅ → 🚫 → �
     expect(back.id).toBe(e.id); expect(back.skippedAt).toBeNull(); expect(back.doneAt).toBeNull(); expect(back.note).toBe('寝坊');
     expect(r.toggleDay('t-zazen', '2026-09-16')!.doneAt).not.toBeNull();
   });
-  it('連続日数＝今日が未記録なら前日から数える。🚫 で途切れる', async () => {
+  it('連続日数＝今日が未記録なら前日から数える。🚫「今日は無し」は飛ばす（連続を切らない第3の状態）', async () => {
     const r = await open();
-    expect(r.streak('t-zazen', TODAY)).toBe(0);       // 9/16 が 🚫
+    expect(r.streak('t-zazen', TODAY)).toBe(2);       // 9/16 が 🚫 → 飛ばして 9/15, 9/14
     r.toggleDay('t-zazen', '2026-09-16');              // 🚫 → なし（メモありで行は残る・✅ではない）
+    expect(r.streak('t-zazen', TODAY)).toBe(0);        // 「なし」は途切れ
     r.toggleDay('t-zazen', '2026-09-16');              // → ✅
     expect(r.streak('t-zazen', TODAY)).toBe(3);        // 9/14, 15, 16
     r.toggleDay('t-zazen', TODAY);
     expect(r.streak('t-zazen', TODAY)).toBe(4);
+  });
+  it('⚙ で「🚫 で切る」にすると、🚫 で途切れる', async () => {
+    const r = await open();
+    r.db.settings.skipBreaksStreak = true;
+    expect(r.streak('t-zazen', TODAY)).toBe(0);
   });
 });
 
