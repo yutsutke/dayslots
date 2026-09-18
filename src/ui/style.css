@@ -108,6 +108,16 @@ table.allgrid td.cell.all .mini .t { color: var(--dim); margin: 0 2px; }
 table.allgrid td.cell.all .box.big { display: block; margin: 0 auto; }
 table.allgrid td.cell.all .sub { display: block; text-align: center; }
 table.allgrid td.cell.all .ghostTxt { color: var(--ghost); }
+/* ⊞ すべて の 1日＝時刻なしの束 ＋ 時刻順 */
+.alld .bundle { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; border-top: 1px solid var(--line); }
+.alld .bundle:first-of-type { border-top: 0; }
+.alld .bundle > b { flex: 0 0 90px; font-size: 13px; }
+.alld .chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.alld .chips .chip { margin: 0; }
+.chip.inline { display: inline-flex; }
+.row.tl .times { flex-basis: 72px; font-size: 13px; }
+.row.tl.ghostTxt { color: var(--ghost); }
+.tkicon { margin-right: 2px; }
 .lnk { cursor: pointer; }
 .review .lnk:hover { text-decoration: underline; }
 

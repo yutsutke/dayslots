@@ -12,8 +12,8 @@ import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v5';
-/** 種目タブの「⊞ すべて」＝種目をまたいで見る（v5 は週だけ。1日・月は触ってから） */
+export const BUILD = 'v6';
+/** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
@@ -60,10 +60,10 @@ function range(): [YMD, YMD] {
 export function render(): void {
   if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   if (state.trackId === ALL) {
-    if (state.view !== 'week') state.view = 'week'; // ⊞ すべて は v5 では週だけ
     const [from, to] = range();
     repo.ensureAuto(from, to);
-    root.replaceChildren(header(null, from, to), allWeek(from, to), footer());
+    const body = state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
+    root.replaceChildren(header(null, from, to), body, footer());
     return;
   }
   const track = repo.track(state.trackId);
@@ -87,7 +87,7 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
     repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
     h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える', onclick: () => openSettings(ctx()) }, '⚙'));
   const label = state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
-  const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', disabled: all && v !== 'week', title: all && v !== 'week' ? '「すべて」の 1日・月 は、週を触ってから作る' : '', onclick: () => { state.view = v; render(); } }, l);
+  const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },
     h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'), seg('month', '月')),
     h('button', { onclick: () => move(-1) }, '◀'),
@@ -112,7 +112,8 @@ function allReviewBar(from: YMD, to: YMD): HTMLElement {
     return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
   });
   const pend = pending(repo).length;
-  return h('div', { class: 'review' }, h('b', null, '🗓 週の見直し（すべて）'), h('span', { class: 'sp' }), parts,
+  const title = state.view === 'week' ? '🗓 週の見直し（すべて）' : state.view === 'month' ? '🗓 月の見直し（すべて）' : '📋 この日（すべて）';
+  return h('div', { class: 'review' }, h('b', null, title), h('span', { class: 'sp' }), parts,
     pend ? h('span', { class: 'warn' }, `📅 未送信 ${pend}`) : null);
 }
 
@@ -232,6 +233,63 @@ function monthGrid(track: Track, from: YMD): HTMLElement {
         show().photos && e.photos.length ? h('img', { class: 'thumb xs', src: e.photos[0].thumb ?? e.photos[0].path, alt: '' }) : null); }),
       list.length > 3 ? h('small', { class: 'sub' }, `＋${list.length - 3}`) : null,
       gl.length ? h('small', { class: 'sub ghostTxt' }, `🔁 ${gl.length}`) : null);
+  };
+  return h('div', { class: 'gridWrap' }, h('table', { class: 'month' },
+    h('thead', null, h('tr', null, Array.from({ length: 7 }, (_, i) => h('th', null, DOW_JA[(ws + i) % 7])))),
+    h('tbody', null, Array.from({ length: 6 }, (_, w) => h('tr', null, days.slice(w * 7, w * 7 + 7).map(cell))))));
+}
+
+// ── ⊞ すべて（1日＝種目をまたいだ時刻順の一本の流れ。時刻なしは上に種目ごとの束） ──
+function allDay(d: YMD): HTMLElement {
+  type Item = { min: number; track: Track; entry?: Entry; occ?: Occurrence };
+  const timed: Item[] = []; const bundles: HTMLElement[] = [];
+  for (const t of repo.tracks) {
+    const es = repo.entriesFor(t.id, d, d), gs = repo.ghostsFor(t.id, d, d);
+    const un: HTMLElement[] = [];
+    if (isDaily(t)) {
+      const e = repo.dayEntry(t.id, d);
+      un.push(h('span', { class: `chip inline ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''}` },
+        h('button', { class: 'box', onclick: (ev: Event) => { ev.stopPropagation(); repo.toggleDay(t.id, d); render(); } }, dayMark(e)),
+        h('span', { class: 'ttl lnk', onclick: () => openEntryForm(ctx(), t, e ?? null, { date: d, title: t.name }) }, dayDetail(e) || t.name)));
+      for (const e of es.slice(1)) { const m = primaryMinute(t, e); if (m != null) timed.push({ min: m, track: t, entry: e }); }
+    } else {
+      for (const e of es) { const m = primaryMinute(t, e); if (m != null) timed.push({ min: m, track: t, entry: e }); else un.push(chip(t, e)); }
+      for (const o of gs) { if (o.planStart != null) timed.push({ min: o.planStart, track: t, occ: o }); else un.push(ghost(t, o)); }
+    }
+    if (un.length) bundles.push(h('div', { class: 'bundle' }, h('b', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`), h('div', { class: 'chips' }, un)));
+  }
+  timed.sort((a, b) => a.min - b.min);
+  const line = (it: Item): HTMLElement => {
+    const t = it.track;
+    if (it.occ) { const o = it.occ; return h('div', { class: 'row tl ghostTxt', onclick: () => { const e = repo.materialize(o); render(); openEntryForm(ctx(), t, e); } },
+      h('div', { class: 'times' }, fmtMin(o.planStart as number)), h('div', { class: 'ttl' }, `${t.icon} ${o.title}`, h('small', { class: 'sub' }, '🔁 確認してから（押すと記録に）'))); }
+    const e = it.entry as Entry;
+    return h('div', { class: `row tl ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}`, onclick: () => openEntryForm(ctx(), t, e) },
+      h('div', { class: 'times' }, fmtMin(it.min), h('small', null, e.actualStart != null && t.features.actualFirst === false && e.planStart != null && e.actualStart !== e.planStart ? ` 実際${fmtMin(e.actualStart)}` : '')),
+      statusBox(t, e),
+      h('div', { class: 'ttl' }, h('span', { class: 'tkicon lnk', title: t.name, onclick: (ev: Event) => { ev.stopPropagation(); state.trackId = t.id; render(); } }, t.icon), ' ', e.title, marks(e, it.min), ...extras(e)));
+  };
+  return h('div', { class: 'day alld' },
+    bundles.length ? h('section', null, h('h3', null, '時刻なし ', h('small', null, '種目ごと')), bundles) : null,
+    h('section', null, h('h3', null, '時刻順 ', h('small', null, `${timed.length} 件`)), timed.length ? timed.map(line) : h('p', { class: 'empty' }, '—')));
+}
+
+// ── ⊞ すべて（月＝升に種目ごとの印） ──────────────────────────
+function allMonth(from: YMD): HTMLElement {
+  const today = todayYMD(), ym = state.anchor.slice(0, 7);
+  const days = Array.from({ length: 42 }, (_, i) => addDays(from, i));
+  const ws = repo.db.settings.weekStart;
+  const cell = (d: YMD) => {
+    const inMonth = d.startsWith(ym);
+    const lines = repo.tracks.map((t) => {
+      if (isDaily(t)) { const e = repo.dayEntry(t.id, d); return e ? h('div', { class: `mini ${e.doneAt ? 'done' : 'skip'}` }, `${t.icon} ${e.doneAt ? '✅' : '🚫'}`) : null; }
+      const es = repo.entriesFor(t.id, d, d); if (!es.length) return null;
+      const done = es.filter((e) => e.doneAt).length, skip = es.filter((e) => e.skippedAt).length;
+      const cls = t.features.done ? (done === es.length ? 'done' : skip && done + skip === es.length ? 'skip' : '') : '';
+      return h('div', { class: `mini ${cls}` }, `${t.icon} ${t.features.done ? `${done}/${es.length}` : es.length}`);
+    }).filter(Boolean);
+    return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: () => { state.view = 'day'; state.anchor = d; render(); } },
+      h('div', { class: 'dn' }, String(Number(d.slice(8)))), lines.length ? lines : h('small', { class: 'sub' }, '·'));
   };
   return h('div', { class: 'gridWrap' }, h('table', { class: 'month' },
     h('thead', null, h('tr', null, Array.from({ length: 7 }, (_, i) => h('th', null, DOW_JA[(ws + i) % 7])))),
