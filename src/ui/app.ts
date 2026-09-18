@@ -11,10 +11,11 @@ import { h as hh, modal } from './dom';
 import { speechAvailable, listen } from './voice';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
+import { Syncer } from '../sync/target';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v11';
+export const BUILD = 'v12';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -28,10 +29,15 @@ export async function boot(el: HTMLElement): Promise<void> {
   root = el;
   repo = await Repo.open(new LocalStore(), () => seedDb());
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
+  // ☁ 保存場所（外の写し）＝保存のたびに少し待って押し出す。開いたときは外が新しければ取り込む
+  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); });
+  repo.onPersist = () => syncer.schedulePush();
   render();
+  void syncer.pullIfNewer();
   // ⏵ 進行中の経過分を1分ごとに描き直す（記録は触らない＝時刻から計算するだけ。長すぎれば OS の通知も）
   setInterval(() => { if (repo.running().length) { notifyOverdue(); render(); } }, 60_000);
 }
+export let syncer: Syncer;
 const notified = new Set<string>();
 function notifyOverdue(): void {
   if (!(repo.db.settings.notify ?? false) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -94,7 +100,10 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
   const tabs = h('div', { class: 'tabs' },
     h('button', { class: all ? 'on' : '', title: '種目をまたいで見る（週＝日 × 種目）', onclick: () => { state.trackId = ALL; render(); } }, '⊞ すべて'),
     repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
-    h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える', onclick: () => openSettings(ctx()) }, '⚙'));
+    track ? h('span', { class: 'seg mv', title: '選んでいる種目の並びを動かす' },
+      h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
+      h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
+    h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙'));
   const label = state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
   const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },

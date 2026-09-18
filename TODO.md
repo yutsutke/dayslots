@@ -13,6 +13,10 @@
 - [ ] 合図の受け口を外に開ける（URL `?say=座禅開始` → Siri のショートカット／ウィジェットから）＝Phase 1 と一緒に
 - [ ] 日をまたいだ終了（23:50 開始 → 0:10 終了）は今は終わりを 24:00 に丸めてメモに残す＝2日にまたがる記録の持ち方を決める
 - ✅ v10（🎤）・v11（進行中の作法4つ＝自動終了・常時1行・長時間の確認・🚫 は連続を切らない）。調査＝docs/reports/コマ 似たアプリの調査.md（次の一手 16 項目）。
+- ✅ v12（並べ替え／保存場所＝端末・Google ドライブ・Supabase／SQLite 書き出し）。
+- [ ] ☁ Google ドライブ：本人が Client ID を作って実際に読み書きを確かめる。iOS の殻でログイン窓が開かなければ ネイティブのログイン（@codetrix-studio/capacitor-google-auth 等）に替える
+- [ ] ☁ Supabase：どのプロジェクトか決めたら `0002_koma_docs.sql` を当て、`koma-store` を deploy し Secret KOMA_SECRET を入れる
+- [ ] ☁ 写真の本体（IndexedDB）は写しに入らない＝Drive/Supabase Storage へ別に置く（Phase 2〜3）
 - ▶ 次＝**本人に聞く3つ**（SPEC.md §11：名前／取り込み／Supabase 同じか別か）→ Phase 1（iPhone で触る）。
 
 ## Phase 1 — iPhone で触る

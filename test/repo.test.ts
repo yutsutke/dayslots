@@ -134,6 +134,28 @@ describe('一日一回（座禅）＝1タップで なし → ✅ → 🚫 → �
   });
 });
 
+describe('種目の並べ替え・消す', () => {
+  it('↑↓ で前後と入れ替わる。端では動かない。畳んだ種目も並びに入る', async () => {
+    const r = await open();
+    const ids = () => [...r.db.tracks].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => t.id);
+    expect(ids()).toEqual(['t-todo', 't-meal', 't-act', 't-zazen', 't-rcpt']);
+    r.moveTrack('t-act', -1); expect(ids()).toEqual(['t-todo', 't-act', 't-meal', 't-zazen', 't-rcpt']);
+    r.moveTrack('t-todo', -1); expect(ids()[0]).toBe('t-todo');
+    r.moveTrack('t-rcpt', 1); expect(ids()[4]).toBe('t-rcpt');
+    expect(r.tracks.map((t) => t.id)).toEqual(ids()); // 画面のタブも同じ並び
+  });
+  it('種目を消すと記録・⭐・🔁 も消える。savedAt が進む', async () => {
+    const r = await open();
+    const before = r.db.savedAt;
+    r.deleteTrack('t-act');
+    expect(r.db.tracks.some((t) => t.id === 't-act')).toBe(false);
+    expect(r.db.entries.some((e) => e.trackId === 't-act')).toBe(false);
+    expect(r.db.templates.some((t) => t.trackId === 't-act')).toBe(false);
+    expect(r.db.rules.some((x) => x.trackId === 't-act')).toBe(false);
+    expect(r.db.savedAt && r.db.savedAt >= (before ?? '')).toBe(true);
+  });
+});
+
 describe('⏱ 合計と平均（週・月の帯）', () => {
   it('長さのある記録だけを数え、🚫 は除く。平均は回あたり', async () => {
     const r = await open();

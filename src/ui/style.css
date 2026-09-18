@@ -24,6 +24,7 @@ small { color: var(--dim); }
 header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 10px 6px; border-bottom: 1px solid var(--line); }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
 .tabs button { font-weight: 600; }
+.tabs .mv button { font-weight: 400; padding: 4px 8px; }
 .nav { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .nav .range { padding: 0 4px; white-space: nowrap; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }

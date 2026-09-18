@@ -28,7 +28,26 @@ export class Repo {
     const db = (await store.load()) ?? seed();
     return new Repo(db, store, today);
   }
-  persist(): Promise<void> { return this.store.save(this.db); }
+  /** 保存のたびに呼ばれる係（同期の予約など）。画面の起動時に差し込む */
+  onPersist: (() => void) | null = null;
+  persist(): Promise<void> { this.db.savedAt = nowIso(); const p = this.store.save(this.db); this.onPersist?.(); return p; }
+  /** 種目の並べ替え＝前後と入れ替える（畳んだものは飛ばさない＝⚙ の一覧の並びそのまま） */
+  moveTrack(id: string, dir: -1 | 1): void {
+    const list = [...this.db.tracks].sort((a, b) => a.sortOrder - b.sortOrder);
+    const i = list.findIndex((t) => t.id === id); const k = i + dir;
+    if (i < 0 || k < 0 || k >= list.length) return;
+    [list[i], list[k]] = [list[k], list[i]];
+    list.forEach((t, n) => { t.sortOrder = n; });
+    void this.persist();
+  }
+  /** 種目を消す（畳んだものだけ・記録も消える＝画面で数を言ってから） */
+  deleteTrack(id: string): void {
+    this.db.tracks = this.db.tracks.filter((t) => t.id !== id);
+    this.db.entries = this.db.entries.filter((e) => e.trackId !== id);
+    this.db.templates = this.db.templates.filter((t) => t.trackId !== id);
+    this.db.rules = this.db.rules.filter((r) => r.trackId !== id);
+    void this.persist();
+  }
 
   // ── 種目 ──────────────────────────────────────────────
   get tracks(): Track[] { return this.db.tracks.filter((t) => !t.archived).sort((a, b) => a.sortOrder - b.sortOrder); }

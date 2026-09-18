@@ -7,6 +7,9 @@ import { validateSlots, slotRange } from '../domain/slots';
 import { GoogleViaEdgeFunction, pending, syncAll } from '../sync/calendar';
 import { seedDb } from '../store/seed';
 import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '../ai/byok';
+import { DriveTarget, type StorageKind } from '../sync/target';
+import { exportSqlite } from '../export/sqlite';
+import { syncer } from './app';
 
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
@@ -22,8 +25,11 @@ export function openSettings(ctx: Ctx): void {
       [...repo.db.tracks].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => h('div', { class: 'item' + (t.archived ? ' dim' : '') },
         h('div', { class: 'ttl' }, h('b', null, `${t.icon} ${t.name}`), h('small', { class: 'sub' }, `${KIND_LABEL[t.kind]} · 枡 ${t.slots.length}：${t.slots.map((s) => s.label + (s.startMin != null ? `(${slotRange(t, s.key)})` : '')).join('／')}`)),
         h('div', { class: 'btns' },
+          h('button', { class: 'sm', title: '上へ', onclick: () => { repo.moveTrack(t.id, -1); draw(); } }, '↑'),
+          h('button', { class: 'sm', title: '下へ', onclick: () => { repo.moveTrack(t.id, 1); draw(); } }, '↓'),
           h('button', { onclick: () => openTrackEditor(ctx, t, draw) }, '✏️ 枡を直す'),
-          h('button', { title: t.archived ? '畳んだ種目を戻す' : '消さずに畳む（記録は残る）', onclick: () => { t.archived = !t.archived; repo.saveTrack(t); draw(); } }, t.archived ? '▶ 戻す' : '⏸ 畳む')))),
+          h('button', { title: t.archived ? '畳んだ種目を戻す' : '消さずに畳む（記録は残る）', onclick: () => { t.archived = !t.archived; repo.saveTrack(t); draw(); } }, t.archived ? '▶ 戻す' : '⏸ 畳む'),
+          t.archived ? h('button', { class: 'danger', title: '種目を消す（記録も消える）', onclick: () => { const n = repo.db.entries.filter((e) => e.trackId === t.id).length; if (confirm(`「${t.name}」を消しますか？ 記録 ${n} 件・⭐・🔁 も一緒に消えます（戻せません）`)) { repo.deleteTrack(t.id); draw(); } } }, '🗑') : null))),
       h('div', { class: 'inline' }, kindSel, h('button', { onclick: () => { const t = repo.addTrackFromPreset(kindSel.value as TrackKind); openTrackEditor(ctx, t, draw); } }, '＋ 種目を足す'),
         hint('例＝「運動型」で 朝散歩／夜ジム。枡はあとから自由に変えられます')),
 
@@ -58,9 +64,31 @@ export function openSettings(ctx: Ctx): void {
       h('p', { class: 'hint' }, '🔁 の「平日」「休日」「週の最初の平日」の判定に効きます（土日と日本の祝日は入れなくてよい）。1行に1日 YYYY-MM-DD。'),
       h('textarea', { rows: 3, value: repo.db.holidays.join('\n'), onchange: (e: Event) => { repo.db.holidays = (e.target as HTMLTextAreaElement).value.split(/\s+/).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)); void repo.persist(); } }),
 
+      h('h3', null, '☁ 保存場所（外の写し）'),
+      h('p', { class: 'hint' }, '記録はいつも端末の中にあり、ここで選んだ所に**写し**を置きます。開いたときに外の方が新しければ取り込み、保存のたびに数秒後に押し出します（新しい方が勝つ）。'),
+      h('div', { class: 'btns' }, ([['local', '端末のみ'], ['drive', 'Google ドライブ'], ['supabase', 'Supabase']] as [StorageKind, string][]).map(([k, l]) =>
+        h('button', { class: (st.storage?.kind ?? 'local') === k ? 'on' : '', onclick: () => { st.storage = { ...(st.storage ?? { kind: 'local' }), kind: k }; void repo.persist(); draw(); } }, l))),
+      (st.storage?.kind === 'drive') ? [
+        field('Client ID', h('input', { value: st.storage.driveClientId ?? '', placeholder: '….apps.googleusercontent.com', oninput: (e: Event) => { st.storage!.driveClientId = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } }),
+          hint('Google Cloud → 認証情報 → OAuth クライアント ID（ウェブ）。承認済み JavaScript 生成元に このページの https://…（Pages と localhost）を足す。権限は drive.file（このアプリが作ったファイルだけ）')),
+        field('フォルダ', h('input', { value: st.storage.driveFolder ?? '', placeholder: 'https://drive.google.com/drive/folders/…（URL か ID）', oninput: (e: Event) => { st.storage!.driveFolder = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } }),
+          hint('ここに koma.json（と SQLite）を置く。ドキュメント（文書）ではなくフォルダを指定する')),
+      ] : null,
+      (st.storage?.kind === 'supabase') ? [
+        field('関数の場所', h('input', { value: st.storage.supabaseUrl ?? '', placeholder: 'https://xxxx.supabase.co', oninput: (e: Event) => { st.storage!.supabaseUrl = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } })),
+        field('合言葉', h('input', { type: 'password', value: st.storage.supabaseSecret ?? '', oninput: (e: Event) => { st.storage!.supabaseSecret = (e.target as HTMLInputElement).value; void repo.persist(); } }),
+          hint('Edge Function koma-store の Secret KOMA_SECRET と同じ文字列。表 koma_docs と関数は supabase/ にある（⚠ まだ当てていない＝どのプロジェクトに置くか決めてから）')),
+      ] : null,
+      (st.storage?.kind ?? 'local') !== 'local' ? h('div', { class: 'inline' },
+        h('button', { class: 'primary', onclick: async () => { const r = await syncer.pullIfNewer(); alert(r === 'pulled' ? '外の写しを取り込みました' : r === 'pushed' ? '端末の内容を外へ保存しました' : r === 'same' ? '同じでした' : '接続できませんでした（下の赤い文字を見てください）'); draw(); } }, '☁ 今 合わせる'),
+        h('small', null, st.storage?.lastSync ? `最後 ${st.storage.lastSync.slice(5, 16).replace('T', ' ')}` : 'まだ合わせていない'),
+        st.storage?.lastError ? h('small', { class: 'errs' }, `⚠ ${st.storage.lastError}`) : null) : null,
+
       h('h3', null, 'データ'),
       h('div', { class: 'btns' },
         h('button', { onclick: () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([repo.exportJson()], { type: 'application/json' })); a.download = `koma-${new Date().toISOString().slice(0, 10)}.json`; a.click(); } }, '⬇ JSON で書き出す'),
+        h('button', { title: 'SQLite のファイル（DB Browser や Python で読める）。写真の中身は入らない', onclick: async () => { try { const u8 = await exportSqlite(repo.db); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([u8.buffer as ArrayBuffer], { type: 'application/x-sqlite3' })); a.download = `koma-${new Date().toISOString().slice(0, 10)}.sqlite`; a.click(); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '⬇ SQLite で書き出す'),
+        st.storage?.kind === 'drive' ? h('button', { title: '選んだフォルダに koma.sqlite を置く', onclick: async () => { try { const u8 = await exportSqlite(repo.db); await new DriveTarget(st.storage!).putExtra('koma.sqlite', new Blob([u8.buffer as ArrayBuffer], { type: 'application/x-sqlite3' }), 'application/x-sqlite3'); alert('Google ドライブに koma.sqlite を置きました'); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '☁ SQLite を Drive へ') : null,
         h('button', { onclick: () => { const inp = h('input', { type: 'file', accept: '.json,application/json', onchange: async () => { const f = inp.files?.[0]; if (!f) return; try { repo.importJson(await f.text()); alert('読み込みました'); m.close(); ctx.render(); } catch (e) { alert(`読めませんでした: ${(e as Error).message}`); } } }); inp.click(); } }, '⬆ JSON を読み込む'),
         h('button', { class: 'danger', onclick: () => { if (confirm('記録・種目・⭐・🔁 を全部消して、見本に戻します。よいですか？')) { repo.reset(() => seedDb()); m.close(); ctx.render(); } } }, '見本に戻す')),
       h('p', { class: 'hint' }, `記録 ${repo.db.entries.length} 件 · ⭐ ${repo.db.templates.length} · 🔁 ${repo.db.rules.length}（この端末の中だけ。Supabase への置き場は Phase 3）`));
