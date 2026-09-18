@@ -66,8 +66,10 @@ describe('枡の検査（負のテスト＝わざと壊して弾かれるか）'
   it('受け皿が枡の中に無いと弾く', () => {
     expect(validateSlots(todo.slots, 'nope').join()).toMatch(/受け皿/);
   });
-  it('時刻で決まる枡が1つも無いと弾く', () => {
-    expect(validateSlots([{ key: 'a', label: 'a', icon: '', startMin: null }], 'a').join()).toMatch(/時刻で決まる枡が1つも/);
+  it('時刻で決まる枡が無い種目（一日一回＝「その日」だけ）は通り、時刻を入れた記録は受け皿へ', () => {
+    const habit = mk('habit');
+    expect(validateSlots(habit.slots, habit.fallbackKey)).toEqual([]);
+    expect(bucketOf(habit, e({ actualStart: 5 * 60 + 40 }))).toBe('day');
   });
   it('終わりが次の枡に食い込むと弾く', () => {
     const s = structuredClone(meal.slots); s[1].endMin = 17 * 60; // 昼食の終わり 17:00 > 夕食の始まり 16:30

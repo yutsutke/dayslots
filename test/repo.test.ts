@@ -98,6 +98,36 @@ describe('⭐ いつもの', () => {
   });
 });
 
+describe('一日一回（座禅）＝1タップで なし → ✅ → 🚫 → なし', () => {
+  it('印が回る。詳細が無ければ「なし」で行が消える', async () => {
+    const r = await open();
+    const d = '2026-09-10';
+    const e1 = r.toggleDay('t-zazen', d)!;
+    expect(e1.doneAt).not.toBeNull(); expect(e1.title).toBe('座禅'); expect(e1.actualDate).toBe(d);
+    const e2 = r.toggleDay('t-zazen', d)!;
+    expect(e2.id).toBe(e1.id); expect(e2.skippedAt).not.toBeNull(); expect(e2.doneAt).toBeNull();
+    expect(r.toggleDay('t-zazen', d)).toBeNull();
+    expect(r.dayEntry('t-zazen', d)).toBeUndefined();
+  });
+  it('詳細（時刻・メモ）があれば「なし」にしても行は残る（入れた詳細を黙って捨てない）', async () => {
+    const r = await open();
+    const e = r.dayEntry('t-zazen', '2026-09-16')!; // 見本＝🚫・メモ「寝坊」
+    expect(e.skippedAt).not.toBeNull();
+    const back = r.toggleDay('t-zazen', '2026-09-16')!;
+    expect(back.id).toBe(e.id); expect(back.skippedAt).toBeNull(); expect(back.doneAt).toBeNull(); expect(back.note).toBe('寝坊');
+    expect(r.toggleDay('t-zazen', '2026-09-16')!.doneAt).not.toBeNull();
+  });
+  it('連続日数＝今日が未記録なら前日から数える。🚫 で途切れる', async () => {
+    const r = await open();
+    expect(r.streak('t-zazen', TODAY)).toBe(0);       // 9/16 が 🚫
+    r.toggleDay('t-zazen', '2026-09-16');              // 🚫 → なし（メモありで行は残る・✅ではない）
+    r.toggleDay('t-zazen', '2026-09-16');              // → ✅
+    expect(r.streak('t-zazen', TODAY)).toBe(3);        // 9/14, 15, 16
+    r.toggleDay('t-zazen', TODAY);
+    expect(r.streak('t-zazen', TODAY)).toBe(4);
+  });
+});
+
 describe('📅 カレンダーに出すもの', () => {
   it('時刻が無い記録（枡だけ・時間帯なし）は終日で出す。「出す」を立てていない記録は出さない', async () => {
     const r = await open();

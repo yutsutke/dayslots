@@ -10,7 +10,7 @@
 import type { Db, Entry, Track, Template, Rule, YMD, TrackKind } from '../domain/types';
 import type { Store } from '../store/store';
 import { occurrences, type Occurrence } from '../domain/recur';
-import { todayYMD } from '../domain/dates';
+import { todayYMD, addDays } from '../domain/dates';
 import { PRESETS } from '../domain/defaults';
 
 const nowIso = () => new Date().toISOString();
@@ -89,6 +89,29 @@ export class Repo {
     });
   }
   insteadFor(id: string): Entry | undefined { return this.db.entries.find((e) => e.insteadOfId === id); }
+
+  // ── 一日一回（座禅など）＝その日の1件を ✅ → 🚫 → なし と1タップで回す ──
+  dayEntry(trackId: string, date: YMD): Entry | undefined { return this.entriesFor(trackId, date, date)[0]; }
+  /** 詳細（時刻・メモ・写真・名前の変更）が入っているか＝入っていれば「なし」に戻しても行を消さない */
+  hasDetails(e: Entry): boolean {
+    const t = this.track(e.trackId);
+    return Boolean(e.note) || e.planStart != null || e.actualStart != null || e.photos.length > 0 || e.title !== t.name;
+  }
+  /** なし → ✅ → 🚫 → なし。戻り＝いまの行（消したら null） */
+  toggleDay(trackId: string, date: YMD): Entry | null {
+    const t = this.track(trackId); const e = this.dayEntry(trackId, date);
+    if (!e) return this.addEntry(trackId, { date, title: t.name, doneAt: nowIso(), actualDate: date, calendar: false });
+    if (e.doneAt) return this.setSkipped(e.id, true);
+    if (e.skippedAt) { if (this.hasDetails(e)) return this.setSkipped(e.id, false); this.deleteEntry(e.id); return null; }
+    return this.setDone(e.id, true);
+  }
+  /** 連続 ✅ の日数（upTo から後ろへ数える。upTo 当日が未記録なら前日から数える＝今日まだやっていなくても途切れ扱いにしない） */
+  streak(trackId: string, upTo: YMD): number {
+    let d = upTo, n = 0;
+    if (!this.dayEntry(trackId, d)?.doneAt) d = addDays(d, -1);
+    while (this.dayEntry(trackId, d)?.doneAt) { n++; d = addDays(d, -1); }
+    return n;
+  }
 
   // ── ⭐ いつもの ────────────────────────────────────────
   templatesFor(trackId: string): Template[] {

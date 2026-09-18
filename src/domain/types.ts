@@ -12,7 +12,7 @@ export type YMD = string;    // 'YYYY-MM-DD'（端末の暦＝JST）
 export type Minute = number; // その日の 0:00 からの分（0..1440）
 export type ISO = string;    // ISO 8601 の時刻
 
-export type TrackKind = 'todo' | 'meal' | 'activity' | 'custom';
+export type TrackKind = 'todo' | 'meal' | 'activity' | 'habit' | 'custom';
 
 export interface SlotDef {
   key: string;            // 内部名（保存される値・改名しない）
@@ -29,6 +29,7 @@ export interface TrackFeatures {
   photos: boolean;      // 📷 写真を付ける（食事）
   calendar: boolean;    // 📅 時刻つきの記録を Google カレンダーに出せる
   actualFirst: boolean; // 「実際」を主にする（食事＝食べた事実）／false＝「予定」を主にする（やること）
+  daily?: boolean;      // 一日一回（座禅・薬）＝その日に ✅／🚫 を1タップ。詳細（時刻・メモ）は任意。省略＝false
 }
 
 export interface Track {

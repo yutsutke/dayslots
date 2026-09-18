@@ -4,6 +4,7 @@
 
 - ✅ Phase 0＝リポ・言葉・枡と 🔁 の規則・端末で動く画面・検査（v1）。
 - ✅ v2（2026-09-18）＝GitHub Pages（public・https://yutsutke.github.io/dayslots/ ）／「時間帯なし」を Google に終日で／AI 書き起こしを Phase 2 に。
+- ✅ v3（2026-09-18）＝月の画面／一日一回型（座禅）＝1タップ ✅🚫・連続日数・詳細は任意。
 - ▶ 次＝**本人に聞く3つ**（SPEC.md §11：名前／取り込み／Supabase 同じか別か）→ Phase 1（iPhone で触る）。
 
 ## Phase 1 — iPhone で触る

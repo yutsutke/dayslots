@@ -15,4 +15,8 @@ export function daysBetween(a: YMD, b: YMD): number {
 }
 export function lastDayOfMonth(y: number, m: number): number { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 export function weekStartOf(d: YMD, weekStart: 0 | 1): YMD { return addDays(d, -((dowOf(d) - weekStart + 7) % 7)); }
-export const DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+export function addMonths(d: YMD, delta: number): YMD {
+  const [y, m, dd] = parts(d); const total = y * 12 + (m - 1) + delta; const ny = Math.floor(total / 12), nm = (total % 12) + 1;
+  return `${ny}-${p2(nm)}-${p2(Math.min(dd, lastDayOfMonth(ny, nm)))}`;
+}
+export const DOW_JA =['日', '月', '火', '水', '木', '金', '土'];

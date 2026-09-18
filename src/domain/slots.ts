@@ -64,8 +64,8 @@ export function validateSlots(slots: SlotDef[], fallbackKey: string): string[] {
     if (s.startMin != null && (!Number.isInteger(s.startMin) || s.startMin < 0 || s.startMin >= 1440)) errs.push(`始まりの時刻が 0:00〜23:59 の外です（${s.label}）`);
     if (s.endMin != null && s.startMin != null && (s.endMin <= s.startMin || s.endMin > 1440)) errs.push(`終わりの時刻が始まりより前です（${s.label}）`);
   }
+  // 時刻で決まる枡が1つも無いのは通す（一日一回の種目＝「その日」だけ）。時刻を入れた記録は受け皿に落ちる
   const timed = slots.filter((s) => s.startMin != null).sort((a, b) => (a.startMin as number) - (b.startMin as number));
-  if (!timed.length) errs.push('時刻で決まる枡が1つもありません（時刻を入れた記録の置き場が無くなります）');
   for (let i = 1; i < timed.length; i++) {
     if (timed[i].startMin === timed[i - 1].startMin) errs.push(`始まりが同じ時刻の枡が2つあります（${fmtMin(timed[i].startMin as number)}）`);
     const pe = timed[i - 1].endMin;

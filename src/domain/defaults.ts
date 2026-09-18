@@ -41,6 +41,13 @@ export const PRESETS: Record<TrackKind, TrackPreset> = {
     fallbackKey: 'none',
     features: { done: true, photos: false, calendar: true, actualFirst: false },
   },
+  habit: {
+    // 一日一回＝その日やった／やらないを1タップ（ゆう 2026-09-18「最低限の入力、ある日やった、やらない。詳細として時間など」）
+    name: '座禅', icon: '🧘', kind: 'habit',
+    slots: [{ key: 'day', label: 'その日', icon: '📅', startMin: null }],
+    fallbackKey: 'day',
+    features: { done: true, photos: false, calendar: true, actualFirst: true, daily: true },
+  },
   custom: {
     name: '新しい種目', icon: '📌', kind: 'custom',
     slots: [
@@ -53,5 +60,5 @@ export const PRESETS: Record<TrackKind, TrackPreset> = {
   },
 };
 export const KIND_LABEL: Record<TrackKind, string> = {
-  todo: 'やること型（✅ を使う）', meal: '食事型（実際が主・📷）', activity: '運動型（✅・時刻つき）', custom: '白紙',
+  todo: 'やること型（✅ を使う）', meal: '食事型（実際が主・📷）', activity: '運動型（✅・時刻つき）', habit: '一日一回型（座禅・薬＝その日 ✅/🚫 を1タップ）', custom: '白紙',
 };

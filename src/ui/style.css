@@ -68,6 +68,34 @@ table.grid tr.today th.dcol b { color: #f0883e; }
 .row .ttl { flex: 1; }
 .row .sub { display: block; }
 
+/* 一日一回＝1日1行・大きな印 */
+.box.big { font-size: 22px; line-height: 1; padding: 2px 4px; }
+.daily .row { align-items: center; }
+.daily .row.today .times b { color: #f0883e; }
+.daily .row .times { flex-basis: 72px; }
+.daily .row.big { border-top: 0; padding: 12px 0; }
+.daily .row.big .ttl { font-size: 16px; }
+.daily .row.big .sub { font-size: 13px; }
+.daily .hint { margin: 0 0 6px; }
+
+/* 月 */
+table.month { width: 100%; border-collapse: separate; border-spacing: 3px; table-layout: fixed; }
+table.month th { color: var(--dim); font-size: 11px; font-weight: 500; padding: 2px 0; }
+td.mcell { vertical-align: top; height: 72px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 3px 4px; font-size: 11px; cursor: pointer; overflow: hidden; }
+td.mcell.out { opacity: .4; }
+td.mcell.today { border-color: var(--accent); }
+td.mcell.done { background: var(--ok-bg); border-color: var(--ok); }
+td.mcell.skip { background: var(--skip-bg); border-color: var(--skip); }
+td.mcell .dn { color: var(--dim); font-weight: 600; margin-bottom: 2px; }
+td.mcell.today .dn { color: #f0883e; }
+td.mcell .mini { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+td.mcell .mini.done { color: var(--ok); }
+td.mcell .mini.skip { color: var(--skip); text-decoration: line-through; }
+td.mcell .mini .t { color: var(--dim); margin-right: 2px; }
+td.mcell .ghostTxt { color: var(--ghost); }
+td.mcell .box.big { display: block; margin: 2px auto; }
+td.mcell .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 footer { padding: 10px; color: var(--dim); font-size: 11px; text-align: center; }
 
 /* 板（下から出る） */

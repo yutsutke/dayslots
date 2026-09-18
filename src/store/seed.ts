@@ -7,7 +7,7 @@ import { todayYMD, addDays } from '../domain/dates';
 export function seedDb(today = todayYMD()): Db {
   const iso = new Date().toISOString();
   const mk = (kind: keyof typeof PRESETS, id: string, order: number): Track => ({ ...structuredClone(PRESETS[kind]), id, sortOrder: order, archived: false });
-  const tracks = [mk('todo', 't-todo', 0), mk('meal', 't-meal', 1), mk('activity', 't-act', 2)];
+  const tracks = [mk('todo', 't-todo', 0), mk('meal', 't-meal', 1), mk('activity', 't-act', 2), mk('habit', 't-zazen', 3)];
   const base: Omit<Entry, 'id' | 'trackId' | 'date' | 'title'> = {
     slotKey: null, planStart: null, planEnd: null, actualDate: null, actualStart: null, actualEnd: null,
     doneAt: null, skippedAt: null, insteadOfId: null, note: null, priority: 0, tag: null, templateId: null,
@@ -26,6 +26,9 @@ export function seedDb(today = todayYMD()): Db {
     e('e8', 't-meal', y, 'バナナ', { actualDate: y, actualStart: 15 * 60 + 30, payload: { origin: 'home' }, templateId: 'tp-banana' }),
     e('e9', 't-meal', today, 'うどん', { actualDate: today, actualStart: 8 * 60, payload: { origin: 'home' } }),
     e('e10', 't-act', today, '朝散歩', { planStart: 6 * 60 + 30, planEnd: 7 * 60, doneAt: iso, actualDate: today, actualStart: 6 * 60 + 35, actualEnd: 7 * 60 + 5, calendar: true, templateId: 'tp-walk' }),
+    e('e11', 't-zazen', addDays(today, -3), '座禅', { doneAt: iso, actualDate: addDays(today, -3) }),
+    e('e12', 't-zazen', addDays(today, -2), '座禅', { doneAt: iso, actualDate: addDays(today, -2), actualStart: 5 * 60 + 40, actualEnd: 6 * 60 }),
+    e('e13', 't-zazen', y, '座禅', { skippedAt: iso, note: '寝坊' }),
   ];
   const t = (id: string, trackId: string, name: string, more: Partial<Template> = {}): Template => ({
     id, trackId, name, slotKey: null, title: name, note: null, payload: {}, photos: [], planStart: null, planEnd: null, calendar: false, sortOrder: 0, createdAt: iso, updatedAt: iso, ...more,
