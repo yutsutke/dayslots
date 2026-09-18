@@ -185,6 +185,7 @@ function openTemplateForm(ctx: Ctx, track: Track, tpl: Template | null, onSaved:
       field('呼び名', h('input', { value: d.name, placeholder: 'いつもの朝ごはん', oninput: (e: Event) => { d.name = (e.target as HTMLInputElement).value; } })),
       field('なに（記録に入る文）', h('input', { value: d.title, oninput: (e: Event) => { d.title = (e.target as HTMLInputElement).value; } })),
       field('既定の枡', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, 'どの枡でも'), hint('縛りではない＝呼んだ先の枡が勝つ（朝食のメニューを昼にも使える）')),
+      field('合図の別名', h('input', { value: (d.aliases ?? []).join('、'), placeholder: 'ウォーキング、walk', oninput: (e: Event) => { d.aliases = (e.target as HTMLInputElement).value.split(/[、,\s]+/).map((x) => x.trim()).filter(Boolean); } }), hint('「散歩開始」のように呼び名でも、この別名でも、この型のある種目に入る')),
       field('既定の時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }),
         durInput(() => d.planDur, (v) => { d.planDur = v; draw(); }, null))),
     ];

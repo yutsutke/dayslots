@@ -43,6 +43,7 @@ export interface Track {
   features: TrackFeatures;
   sortOrder: number;
   archived: boolean;    // 消さずに畳む（記録は残る）
+  aliases?: string[];   // 合図で呼ぶときの別名（「ざぜん」「meditation」）
 }
 
 export type Priority = -1 | 0 | 1;
@@ -91,6 +92,7 @@ export interface Template {
   planEnd: Minute | null;
   planDur?: Minute | null;
   calendar: boolean;
+  aliases?: string[];          // 合図で呼ぶときの別名（「ウォーキング」→ 散歩）
   sortOrder: number;
   createdAt: ISO;
   updatedAt: ISO;
@@ -146,8 +148,12 @@ export interface Settings {
   calendarSecret: string;      // その合言葉（端末内だけ）
 }
 
+/** 未振り分け＝どの種目か解けなかった合図。黙って捨てず、あとで種目を選ぶ */
+export interface InboxItem { id: string; text: string; at: ISO; date: YMD; }
+
 export interface Db {
   version: 1;
+  inbox?: InboxItem[];
   tracks: Track[];
   entries: Entry[];
   templates: Template[];

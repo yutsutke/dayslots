@@ -13,10 +13,13 @@ import { occurrences, type Occurrence } from '../domain/recur';
 import { todayYMD, addDays } from '../domain/dates';
 import { PRESETS } from '../domain/defaults';
 import { durationOf } from '../domain/slots';
+import { parseSignal, resolve, type Signal } from '../domain/signal';
+import { nowMinute } from '../domain/dates';
 
 const nowIso = () => new Date().toISOString();
 export const uid = (): string =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
+const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const byOrder = (a: Entry, b: Entry) => a.sortOrder - b.sortOrder || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
 
 export class Repo {
@@ -211,6 +214,92 @@ export class Repo {
     else { r.exceptions[date] = { ...(r.exceptions[date] ?? {}), del: true }; this.db.entries = this.db.entries.filter((e) => !(e.ruleId === ruleId && e.ruleDate === date)); }
     r.updatedAt = nowIso(); void this.persist();
   }
+
+  // ── 合図（全体入力／種目入力） ────────────────────────────
+  /** ⏵ 進行中＝「開始」の合図で入って、まだ終わりも長さも無い記録。⚠ 手で「食べた時刻」だけ入れた食事などは進行中ではない＝合図の印（payload.signal='start'）で見分ける */
+  isRunning(e: Entry): boolean { return e.payload.signal === 'start' && e.actualStart != null && e.actualEnd == null && e.actualDur == null && !e.skippedAt; }
+  running(trackId?: string): Entry[] { return this.db.entries.filter((e) => this.isRunning(e) && (!trackId || e.trackId === trackId)).sort((a, b) => (a.date + String(a.actualStart).padStart(4, '0') < b.date + String(b.actualStart).padStart(4, '0') ? 1 : -1)); }
+  /** 「終了」の相手＝同じ種目・同じ名前で進行中のもの（今日か昨夜）。無ければ undefined */
+  openFor(trackId: string, title: string, today: YMD): Entry | undefined {
+    const y = addDays(today, -1);
+    return this.running(trackId).find((e) => e.title === title && (e.date === today || e.date === y));
+  }
+  /** 合図 → 記録。trackId を渡すと名前を解かない（種目の欄から）。戻り＝何が起きたか（画面の一言） */
+  applySignal(text: string, trackId?: string): { kind: 'started' | 'ended' | 'done' | 'skipped' | 'added' | 'noted' | 'unresolved'; entry?: Entry; message: string } {
+    const sig: Signal = parseSignal(text);
+    const today = this.today(); const at = sig.time ?? nowMinute();
+    // ⏵ 進行中があるとき、動詞も時刻も長さも無い言葉は**その記録のメモに積む**（「散歩開始」→「きれいな花」「鳥の声」→「散歩終了」）
+    if (sig.verb === 'add' && sig.dur == null && sig.time == null) {
+      const run = this.running(trackId)[0];
+      if (run && (trackId || !resolve(sig.name, this.tracks, this.db.templates))) {
+        const line = `${fmt(at)} ${sig.name || text.trim()}`;
+        this.updateEntry(run.id, { note: [run.note, line].filter(Boolean).join('\n') });
+        return { kind: 'noted', entry: run, message: `📝 ⏵ ${this.track(run.trackId).icon} ${run.title} にメモ「${sig.name || text.trim()}」` };
+      }
+    }
+    let track: Track | undefined, title = sig.name, templateId: string | null = null;
+    if (trackId) { track = this.track(trackId); if (!title) title = track.name; const r = sig.name ? resolve(sig.name, [track], this.db.templates.filter((t) => t.trackId === trackId)) : null; if (r?.template) { templateId = r.template.id; title = r.title; } }
+    else {
+      const r = resolve(sig.name, this.tracks, this.db.templates);
+      if (!r) { const item = { id: uid(), text, at: nowIso(), date: today }; (this.db.inbox ??= []).push(item); void this.persist(); return { kind: 'unresolved', message: `「${sig.name || text}」がどの種目か分かりませんでした → 未振り分けに置きました` }; }
+      track = r.track; title = r.title; templateId = r.template?.id ?? null;
+    }
+    const t = track;
+    const fresh = (more: Partial<Entry>): Entry => {
+      const e = this.blankEntry(t.id, { date: today, title, templateId, payload: { signal: sig.verb }, ...more });
+      const tpl = templateId ? this.db.templates.find((x) => x.id === templateId) : null;
+      if (tpl) { e.note ??= tpl.note; e.payload = { ...structuredClone(tpl.payload), signal: sig.verb }; if (tpl.calendar) e.calendar = true; }
+      this.db.entries.push(e); void this.persist(); return e;
+    };
+    const sameDay = () => this.entriesFor(t.id, today, today).find((e) => e.title === title && !this.isRunning(e)) ?? this.entriesFor(t.id, today, today).find((e) => e.title === title);
+    const label = `${t.icon} ${title}`;
+    switch (sig.verb) {
+      case 'start': {
+        const e = fresh({ actualDate: today, actualStart: at, actualDur: sig.dur });
+        return { kind: 'started', entry: e, message: `⏵ ${label} を ${fmt(at)} に開始` };
+      }
+      case 'end': {
+        const open = this.openFor(t.id, title, today);
+        if (open) {
+          const patch: Partial<Entry> = { actualEnd: at, payload: { ...open.payload, signal: 'pair' } };
+          if (at < (open.actualStart as number)) { patch.actualEnd = 1440; patch.note = [open.note, `日をまたいだ終了 ${fmt(at)}`].filter(Boolean).join(' / '); }
+          if (t.features.done) patch.doneAt = nowIso();
+          this.updateEntry(open.id, patch);
+          const dur = durationOf(open);
+          return { kind: 'ended', entry: open, message: `⏹ ${label} を ${fmt(at)} に終了${dur ? `（${dur}分）` : ''}` };
+        }
+        const e = fresh({ actualDate: today, actualEnd: at, doneAt: t.features.done ? nowIso() : null });
+        return { kind: 'ended', entry: e, message: `⏹ ${label} 終了 ${fmt(at)}（開始の合図が無かったので終わりだけ入れました）` };
+      }
+      case 'done': {
+        const e = sameDay() ?? fresh({});
+        this.updateEntry(e.id, { doneAt: nowIso(), skippedAt: null, actualDate: e.actualDate ?? today, actualDur: sig.dur ?? e.actualDur ?? null, actualStart: sig.time ?? e.actualStart, payload: { ...e.payload, signal: 'done' } });
+        return { kind: 'done', entry: e, message: `✅ ${label}${sig.dur ? ` ${sig.dur}分` : ''}` };
+      }
+      case 'skip': {
+        const e = sameDay() ?? fresh({});
+        this.updateEntry(e.id, { skippedAt: nowIso(), doneAt: null, payload: { ...e.payload, signal: 'skip' } });
+        return { kind: 'skipped', entry: e, message: `🚫 ${label} やらなかった` };
+      }
+      default: {
+        // 動詞なし＝「散歩 30分」「散歩 8時から」「散歩」。長さか時刻があれば実際に入れる（言った＝やった）、無ければ予定として置く
+        const e = fresh(sig.dur != null || sig.time != null
+          ? { actualDate: today, actualStart: sig.time, actualDur: sig.dur, doneAt: t.features.done ? nowIso() : null }
+          : {});
+        return { kind: 'added', entry: e, message: `${label} を${sig.dur != null ? ` ${sig.dur}分で` : ''}${sig.time != null ? ` ${fmt(sig.time)} に` : ''} 入れました` };
+      }
+    }
+  }
+  /** 未振り分けを種目に振る（合図としてもう一度通す） */
+  assignInbox(id: string, trackId: string): { kind: string; message: string } {
+    const item = (this.db.inbox ?? []).find((x) => x.id === id); if (!item) throw new Error('その項目はありません');
+    const r = this.applySignal(item.text, trackId);
+    this.db.inbox = (this.db.inbox ?? []).filter((x) => x.id !== id); void this.persist();
+    return r;
+  }
+  dropInbox(id: string): void { this.db.inbox = (this.db.inbox ?? []).filter((x) => x.id !== id); void this.persist(); }
+  /** ⏵ を「今」で終了 */
+  stop(entryId: string): Entry { const e = this.mustEntry(entryId); const t = this.track(e.trackId); return this.updateEntry(entryId, { actualEnd: Math.max(nowMinute(), (e.actualStart ?? 0) + 1), doneAt: t.features.done ? nowIso() : e.doneAt, payload: { ...e.payload, signal: 'pair' } }); }
 
   // ── 見渡す・データ ─────────────────────────────────────
   summary(trackId: string, from: YMD, to: YMD): { total: number; done: number; skipped: number; open: number; ghosts: number } {

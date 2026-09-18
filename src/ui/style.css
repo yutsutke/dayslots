@@ -129,6 +129,14 @@ button.sm { padding: 2px 6px; font-size: 12px; }
 .rcpt table.items { border-collapse: collapse; margin-top: 4px; }
 .rcpt table.items td { padding: 1px 6px 1px 0; border-top: 1px solid var(--line); font-size: 12px; }
 .rcpt table.items td.n { text-align: right; font-variant-numeric: tabular-nums; }
+/* 合図の入力欄・進行中・未振り分け */
+.sigBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.sigBar .grow { flex: 1 1 260px; }
+.sigBar .grow input.sig { flex: 1; min-width: 0; }
+.sigBar .runBtn { border-color: var(--accent); color: var(--accent); }
+.sigBar .toast { flex-basis: 100%; font-size: 12px; color: var(--ok); cursor: pointer; }
+.inbox { margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--skip); border-radius: 10px; font-size: 13px; }
+.inbox .inline { margin-top: 4px; }
 .lnk { cursor: pointer; }
 .review .lnk:hover { text-decoration: underline; }
 

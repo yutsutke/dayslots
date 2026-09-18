@@ -7,12 +7,13 @@ import { seedDb } from '../store/seed';
 import { todayYMD, addDays, addMonths, weekStartOf, DOW_JA, dowOf } from '../domain/dates';
 import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, planDurationOf, actualDurationOf, primaryMinute, slotRange } from '../domain/slots';
 import { openEntryForm, openTemplates, openRules } from './forms';
+import { h as hh, modal } from './dom';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v8';
+export const BUILD = 'v9';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -101,7 +102,48 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
       h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
     ] : hint('足す・⭐・🔁 は種目のタブで'));
-  return h('header', null, tabs, nav, track ? reviewBar(track, from, to) : allReviewBar(from, to));
+  return h('header', null, tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox());
+}
+
+/** 合図の入力欄＝全体（名前を解く）／種目（名前は省いてよい）。Enter か「入れる」で通す */
+let lastToast = '';
+function signalBar(track: Track | null): HTMLElement {
+  const inp = h('input', { class: 'sig', placeholder: track ? `${track.name}への合図＝「開始」「終了」「30分」「やった」…` : '合図＝「座禅開始」「散歩終了」「散歩 30分」「昼ごはん やった」…', enterkeyhint: 'send' });
+  const go = () => {
+    const text = inp.value.trim(); if (!text) return;
+    const r = repo.applySignal(text, track?.id);
+    lastToast = r.message; inp.value = '';
+    render();
+  };
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  const run = repo.running(track?.id);
+  return h('div', { class: 'sigBar' },
+    h('span', { class: 'inline grow' }, inp, h('button', { class: 'primary', onclick: go }, '入れる')),
+    run.length ? h('button', { class: 'runBtn', title: '進行中の記録（押して終了）', onclick: () => openRunning() }, `⏵ 進行中 ${run.length}`) : null,
+    lastToast ? h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast) : null);
+}
+function openRunning(): void {
+  const body = hh('div');
+  const m = modal('⏵ 進行中', body);
+  const draw = () => {
+    const run = repo.running();
+    body.replaceChildren(...(run.length ? run.map((e) => { const t = repo.track(e.trackId); return hh('div', { class: 'item' },
+      hh('div', { class: 'ttl' }, hh('b', null, `${t.icon} ${e.title}`), hh('small', { class: 'sub' }, `${e.date} ${fmtMin(e.actualStart as number)}〜`)),
+      hh('div', { class: 'btns' }, hh('button', { class: 'primary', onclick: () => { repo.stop(e.id); lastToast = `⏹ ${t.icon} ${e.title} を終了`; draw(); render(); } }, '⏹ 今 終了'), hh('button', { onclick: () => { m.close(); openEntryForm(ctx(), t, e); } }, '…'))); })
+      : [hh('p', { class: 'empty' }, '進行中のものはありません')]));
+    if (!repo.running().length) m.close();
+  };
+  draw();
+}
+/** 未振り分け＝どの種目か解けなかった合図。種目を選んで振る／消す */
+function inboxBox(): HTMLElement | null {
+  const items = repo.db.inbox ?? []; if (!items.length) return null;
+  return h('div', { class: 'inbox' }, h('b', null, `📥 未振り分け ${items.length}`), items.map((it) => {
+    const sel = h('select', null, h('option', { value: '' }, '種目を選ぶ…'), repo.tracks.map((t) => h('option', { value: t.id }, `${t.icon} ${t.name}`)));
+    return h('div', { class: 'inline' }, h('span', null, `「${it.text}」`, h('small', null, ` ${it.at.slice(5, 16).replace('T', ' ')}`)), sel,
+      h('button', { onclick: () => { if (!sel.value) return; const r = repo.assignInbox(it.id, sel.value); lastToast = r.message; render(); } }, '振る'),
+      h('button', { class: 'ghost', onclick: () => { repo.dropInbox(it.id); render(); } }, '✕'));
+  }));
 }
 
 /** ⊞ すべて の帯＝種目ごとの数を横に並べる（押すとその種目へ） */
@@ -309,6 +351,7 @@ function statusBox(track: Track, e: Entry): HTMLElement | null {
 function marks(e: Entry, m: number | null): HTMLElement {
   const origin = e.payload.origin as string | undefined;
   return h('span', { class: 'marks' },
+    repo.isRunning(e) ? '⏵' : e.actualEnd != null && e.actualStart == null ? '⏹' : '',
     e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.templateId ? '⭐' : '', e.calendar && m != null ? '📅' : '',
     origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length && !show().photos ? `📷${e.photos.length}` : '',
     (e.payload.ai as { status?: string } | undefined)?.status === 'pending' ? '🤖…' : (e.payload.ai as { status?: string } | undefined)?.status === 'error' ? '🤖⚠' : '');

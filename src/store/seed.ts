@@ -36,7 +36,8 @@ export function seedDb(today = todayYMD()): Db {
   const templates: Template[] = [
     t('tp-bf', 't-meal', 'いつもの朝ごはん', { slotKey: 'breakfast', title: 'いつもの（小松菜・にんじん・スープ）', payload: { origin: 'home' } }),
     t('tp-banana', 't-meal', 'バナナ', { slotKey: 'snack', payload: { origin: 'home' } }),
-    t('tp-walk', 't-act', '朝散歩', { planStart: 6 * 60 + 30, planEnd: 7 * 60, calendar: true }),
+    t('tp-walk', 't-act', '朝散歩', { planStart: 6 * 60 + 30, planEnd: 7 * 60, calendar: true, aliases: ['散歩', 'ウォーキング'] }),
+    t('tp-gym', 't-act', 'ジム', { planStart: 19 * 60, planEnd: 20 * 60, calendar: true, aliases: ['夜ジム', '筋トレ'] }),
   ];
   const r = (id: string, trackId: string, title: string, more: Partial<Rule> = {}): Rule => ({
     id, trackId, title, note: null, payload: {}, templateId: null, freq: 'daily', byday: [], interval: null, half: null, dayFrom: null, dayTo: null,

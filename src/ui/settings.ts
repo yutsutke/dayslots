@@ -78,6 +78,7 @@ function openTrackEditor(ctx: Ctx, track: Track, onSaved: () => void): void {
     fill(body, 
       field('名前', h('input', { value: d.name, oninput: (e: Event) => { d.name = (e.target as HTMLInputElement).value; } })),
       field('絵', h('input', { value: d.icon, style: { width: '4em' }, oninput: (e: Event) => { d.icon = (e.target as HTMLInputElement).value; } })),
+      field('合図の別名', h('input', { value: (d.aliases ?? []).join('、'), placeholder: 'ざぜん、meditation', oninput: (e: Event) => { d.aliases = (e.target as HTMLInputElement).value.split(/[、,\s]+/).map((x) => x.trim()).filter(Boolean); } }), hint('全体入力で「ざぜん開始」と言ったときにこの種目に入る')),
       field('使うもの',
         chk('✅ やった／🚫 やらなかった／🔀 代わりに', () => d.features.done, (v) => { d.features.done = v; }, 'やること・運動のように「やる／やらない」がある種目'),
         chk('📷 写真を付ける', () => d.features.photos, (v) => { d.features.photos = v; }, '食事のように写真そのものが記録になる種目'),
