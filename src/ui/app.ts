@@ -15,7 +15,7 @@ import { Syncer } from '../sync/target';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v12';
+export const BUILD = 'v14';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -30,7 +30,7 @@ export async function boot(el: HTMLElement): Promise<void> {
   repo = await Repo.open(new LocalStore(), () => seedDb());
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   // ☁ 保存場所（外の写し）＝保存のたびに少し待って押し出す。開いたときは外が新しければ取り込む
-  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); });
+  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); });
   repo.onPersist = () => syncer.schedulePush();
   render();
   void syncer.pullIfNewer();

@@ -31,6 +31,10 @@ export class Repo {
   /** 保存のたびに呼ばれる係（同期の予約など）。画面の起動時に差し込む */
   onPersist: (() => void) | null = null;
   persist(): Promise<void> { this.db.savedAt = nowIso(); const p = this.store.save(this.db); this.onPersist?.(); return p; }
+  /** 端末にだけ書く（savedAt を進めない・同期も予約しない）＝同期の係が「送れた」印を残すとき用 */
+  persistQuiet(): Promise<void> { return this.store.save(this.db); }
+  /** 消した記録の id を控える（差分で「消した」を外に伝えるため。送れたら同期の係が空にする） */
+  private tomb(ids: string[]): void { if (ids.length) this.db.deleted = [...(this.db.deleted ?? []), ...ids]; }
   /** 種目の並べ替え＝前後と入れ替える（畳んだものは飛ばさない＝⚙ の一覧の並びそのまま） */
   moveTrack(id: string, dir: -1 | 1): void {
     const list = [...this.db.tracks].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -42,6 +46,7 @@ export class Repo {
   }
   /** 種目を消す（畳んだものだけ・記録も消える＝画面で数を言ってから） */
   deleteTrack(id: string): void {
+    this.tomb(this.db.entries.filter((e) => e.trackId === id).map((e) => e.id));
     this.db.tracks = this.db.tracks.filter((t) => t.id !== id);
     this.db.entries = this.db.entries.filter((e) => e.trackId !== id);
     this.db.templates = this.db.templates.filter((t) => t.trackId !== id);
@@ -84,6 +89,7 @@ export class Repo {
   }
   upsertEntry(e: Entry): Entry { if (this.entry(e.id)) return this.updateEntry(e.id, e); this.db.entries.push({ ...e }); void this.persist(); return e; }
   deleteEntry(id: string): void {
+    this.tomb([id]);
     this.db.entries = this.db.entries.filter((e) => e.id !== id);
     for (const e of this.db.entries) if (e.insteadOfId === id) e.insteadOfId = null;
     this.db.calendarMap = this.db.calendarMap.filter((m) => m.entryId !== id);
@@ -240,7 +246,7 @@ export class Repo {
   skipOccurrence(ruleId: string, date: YMD, undo = false): void {
     const r = this.db.rules.find((x) => x.id === ruleId); if (!r) throw new Error('その繰り返しはありません');
     if (undo) delete r.exceptions[date];
-    else { r.exceptions[date] = { ...(r.exceptions[date] ?? {}), del: true }; this.db.entries = this.db.entries.filter((e) => !(e.ruleId === ruleId && e.ruleDate === date)); }
+    else { r.exceptions[date] = { ...(r.exceptions[date] ?? {}), del: true }; this.tomb(this.db.entries.filter((e) => e.ruleId === ruleId && e.ruleDate === date).map((e) => e.id)); this.db.entries = this.db.entries.filter((e) => !(e.ruleId === ruleId && e.ruleDate === date)); }
     r.updatedAt = nowIso(); void this.persist();
   }
 
@@ -366,7 +372,8 @@ export class Repo {
   importJson(s: string): void {
     const d = JSON.parse(s) as Db;
     if (d?.version !== 1 || !Array.isArray(d.tracks) || !Array.isArray(d.entries)) throw new Error('この形の JSON は読めません');
-    this.db = d; void this.persist();
+    const keep = this.db.settings.storage; // 保存場所の設定は端末のものを残す。丸ごと入れ替わったので次は差分でなく丸ごと送る
+    this.db = d; if (keep) this.db.settings.storage = { ...keep, lastPushedAt: undefined, remoteSavedAt: undefined }; void this.persist();
   }
-  reset(seed: () => Db): void { this.db = seed(); void this.persist(); }
+  reset(seed: () => Db): void { const keep = this.db.settings.storage; this.db = seed(); if (keep) this.db.settings.storage = { ...keep, lastPushedAt: undefined, remoteSavedAt: undefined }; void this.persist(); }
 }

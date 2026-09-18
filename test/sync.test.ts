@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { forExport, mergeRemote } from '../src/sync/target';
+import { buildDelta, applyDelta, type DocLike } from '../src/sync/delta';
+import { readFileSync } from 'node:fs';
 import { seedDb } from '../src/store/seed';
 import type { Db, Entry } from '../src/domain/types';
 
@@ -65,5 +67,43 @@ describe('☁ 外の写し', () => {
     const local = withOld();
     const remote = forExport(seedDb(TODAY), TODAY);
     expect(mergeRemote(remote, local).entries.some((e) => e.id === 'old1')).toBe(false);
+  });
+
+  it('差分＝前回送ってから変わった記録と、消した id だけ。芯（種目・いつもの・繰り返し・設定）は丸ごと', () => {
+    const db = seedDb(TODAY);
+    const since = '2026-09-17T12:00:00.000Z';
+    for (const e of db.entries) e.updatedAt = '2026-09-17T00:00:00.000Z';
+    db.entries[0].updatedAt = '2026-09-17T13:00:00.000Z'; db.entries[0].title = '直した';
+    db.savedAt = '2026-09-17T13:00:01.000Z';
+    const out = forExport(db, TODAY) as unknown as DocLike;
+    const d = buildDelta(out, since, 'BASE', ['gone1']);
+    expect(d.upserts.map((e) => e.id)).toEqual([db.entries[0].id]);
+    expect(d.deletes).toEqual(['gone1']); expect(d.baseSavedAt).toBe('BASE');
+    expect(Object.keys(d.core).sort()).toEqual(['calendarMap', 'holidays', 'rules', 'settings', 'templates', 'tracks']);
+    expect(JSON.stringify(d).length).toBeLessThan(JSON.stringify(out).length);
+  });
+
+  it('差分を当てると、丸ごと送ったのと同じ写しになる（直し・追加・削除・期間の切り落とし）', () => {
+    const before = withOld(); before.settings.storage = { kind: 'supabase', windowDays: 31 };
+    for (const e of before.entries) e.updatedAt = '2026-09-17T00:00:00.000Z';
+    const base = forExport(before, TODAY) as unknown as DocLike; base.savedAt = 'T0';
+    const after = structuredClone(before);
+    after.entries = after.entries.filter((e) => e.id !== 'e5');                                   // 消した
+    after.entries.find((e) => e.id === 'e2')!.title = '直した'; after.entries.find((e) => e.id === 'e2')!.updatedAt = '2026-09-17T13:00:00.000Z';
+    after.entries.push({ ...after.entries[0], id: 'new1', title: '足した', updatedAt: '2026-09-17T13:30:00.000Z' });
+    after.tracks[0].name = '名前を変えた'; after.savedAt = 'T1';
+    const full = forExport(after, TODAY) as unknown as DocLike;
+    const viaDelta = applyDelta(base, buildDelta(full, '2026-09-17T12:00:00.000Z', 'T0', ['e5']));
+    // 鍵の並び順は問わない（中身が同じか）＝記録は id 順に並べてから比べる
+    const norm = (x: DocLike) => ({ ...x, entries: [...x.entries].sort((a, b) => (a.id < b.id ? -1 : 1)) });
+    expect(norm(viaDelta)).toEqual(norm(full));
+    expect(viaDelta.entries.some((e) => e.id === 'old1')).toBe(false);
+  });
+
+  it('関数の側の delta.ts は src の写し＝1文字も違わない（規則を2か所に書かない）', () => {
+    const lf = (x: string) => x.split(String.fromCharCode(13)).join('');
+    const a = lf(readFileSync('src/sync/delta.ts', 'utf8'));
+    const b = lf(readFileSync('supabase/functions/koma-store/delta.ts', 'utf8'));
+    expect(b).toBe(a);
   });
 });

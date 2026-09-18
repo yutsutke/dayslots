@@ -8,6 +8,7 @@
 import type { Db, ISO, YMD } from '../domain/types';
 import { todayYMD, addDays } from '../domain/dates';
 import { driveToken, folderIdOf, findFile, putFile, getFileText } from './drive';
+import { buildDelta, type Delta, type DocLike } from './delta';
 
 export type StorageKind = 'local' | 'drive' | 'supabase';
 export interface StorageSettings {
@@ -17,6 +18,8 @@ export interface StorageSettings {
   driveFolder?: string;     // フォルダの URL か ID
   supabaseUrl?: string;     // https://xxxx.supabase.co
   supabaseSecret?: string;  // koma-store の合言葉
+  lastPushedAt?: ISO;       // 最後に送れた時刻＝これより後に変わった記録が「差分」
+  remoteSavedAt?: ISO;      // そのとき外の写しが持っていた savedAt＝差分を当てる土台の確認に使う
   lastSync?: ISO;           // 最後に外と合わせた時刻
   lastError?: string;
 }
@@ -24,8 +27,11 @@ export interface StorageSettings {
 export interface SyncTarget {
   readonly name: string;
   configured(): boolean;
-  pull(): Promise<{ doc: Db; savedAt: ISO } | null>;   // 外の写し（無ければ null）
+  /** 外の写し（無ければ null）。since を渡し、外がそれより新しくなければ中身を落とさず { same } を返せる */
+  pull(since?: ISO): Promise<{ doc: Db; savedAt: ISO } | { same: true; savedAt: ISO } | null>;
   push(doc: Db): Promise<void>;
+  /** 差分だけ送る（できる所だけ）。'conflict'＝外の土台が違う → 呼び手が丸ごと送り直す */
+  pushDelta?(d: Delta): Promise<'ok' | 'conflict'>;
 }
 
 export class DriveTarget implements SyncTarget {
@@ -55,12 +61,19 @@ export class SupabaseTarget implements SyncTarget {
   configured(): boolean { return Boolean(this.s.supabaseUrl && this.s.supabaseSecret); }
   private url(): string { return `${(this.s.supabaseUrl ?? '').replace(/\/$/, '')}/functions/v1/koma-store`; }
   private headers(): Record<string, string> { return { 'content-type': 'application/json', 'x-koma-secret': this.s.supabaseSecret ?? '' }; }
-  async pull(): Promise<{ doc: Db; savedAt: ISO } | null> {
-    const r = await fetch(this.url(), { headers: this.headers() });
+  async pull(since?: ISO): Promise<{ doc: Db; savedAt: ISO } | { same: true; savedAt: ISO } | null> {
+    const r = await fetch(this.url() + (since ? `?since=${encodeURIComponent(since)}` : ''), { headers: this.headers() });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error(`Supabase が返事をしませんでした（HTTP ${r.status}${r.status === 401 ? '＝合言葉が違う' : ''}）`);
-    const j = (await r.json()) as { doc: Db; saved_at: ISO } | null;
+    const j = (await r.json()) as { doc?: Db; saved_at: ISO; same?: boolean } | null;
+    if (j?.same) return { same: true, savedAt: j.saved_at };
     return j?.doc ? { doc: j.doc, savedAt: j.doc.savedAt ?? j.saved_at } : null;
+  }
+  async pushDelta(d: Delta): Promise<'ok' | 'conflict'> {
+    const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ delta: d }) });
+    if (r.status === 409) return 'conflict';
+    if (!r.ok) throw new Error(`Supabase に書けませんでした（HTTP ${r.status}）`);
+    return 'ok';
   }
   async push(doc: Db): Promise<void> {
     const r = await fetch(this.url(), { method: 'PUT', headers: this.headers(), body: JSON.stringify({ doc }) });
@@ -103,7 +116,7 @@ export function mergeRemote(remote: Db, local: Db): Db {
 export class Syncer {
   private timer: ReturnType<typeof setTimeout> | null = null;
   busy = false;
-  constructor(private getDb: () => Db, private setDb: (d: Db) => void, private onState: (msg: string, err?: boolean) => void) {}
+  constructor(private getDb: () => Db, private setDb: (d: Db) => void, private onState: (msg: string, err?: boolean) => void, private saveQuiet: () => void = () => {}) {}
   target(): SyncTarget | null { return targetFor(this.getDb().settings.storage); }
   schedulePush(): void {
     const t = this.target(); if (!t?.configured()) return;
@@ -113,20 +126,40 @@ export class Syncer {
   async pushNow(): Promise<void> {
     const t = this.target(); if (!t?.configured() || this.busy) return;
     this.busy = true;
-    try { await t.push(forExport(this.getDb())); this.mark(null); this.onState(`☁ ${t.name} に保存 ${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`); }
+    try { const how = await this.send(t); this.mark(null); this.onState(`☁ ${t.name} に保存 ${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}（${how}）`); }
     catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); }
     finally { this.busy = false; }
+  }
+  /** 送る＝できれば差分（前回送ってから変わった記録＋消した id）、だめなら丸ごと。送れたら印を残して「消した id」を空にする */
+  private async send(t: SyncTarget): Promise<string> {
+    const db = this.getDb(); const s = db.settings.storage; const started = new Date().toISOString();
+    const out = forExport(db); let how = '丸ごと';
+    const sentDeletes = [...(db.deleted ?? [])];
+    if (t.pushDelta && s?.lastPushedAt && s.remoteSavedAt) {
+      const d = buildDelta(out as unknown as DocLike, s.lastPushedAt, s.remoteSavedAt, sentDeletes);
+      if ((await t.pushDelta(d)) === 'ok') how = `差分 ${d.upserts.length} 件${d.deletes.length ? `・削除 ${d.deletes.length}` : ''}`;
+      else await t.push(out);
+    } else await t.push(out);
+    if (s) { s.lastPushedAt = started; s.remoteSavedAt = out.savedAt ?? ''; }
+    db.deleted = (db.deleted ?? []).filter((id) => !sentDeletes.includes(id));
+    this.saveQuiet();
+    return how;
   }
   /** 開いたとき＝外が新しければ取り込む（端末の方が新しければ押し出す） */
   async pullIfNewer(): Promise<'pulled' | 'pushed' | 'same' | 'none'> {
     const t = this.target(); if (!t?.configured()) return 'none';
     this.busy = true;
     try {
-      const remote = await t.pull(); const local = this.getDb();
-      if (!remote) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
+      const local = this.getDb();
+      const remote = await t.pull(local.savedAt); // 外が新しくなければ中身は落ちてこない
+      if (!remote) { await this.send(t); this.mark(null); return 'pushed'; }
       const r = remote.savedAt, l = local.savedAt ?? '';
-      if (r > l) { this.setDb(mergeRemote(remote.doc, local)); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled'; }
-      if (l > r) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
+      if (!('same' in remote) && new Date(r).getTime() > new Date(l).getTime()) {
+        const s = local.settings.storage; if (s) { s.lastPushedAt = new Date().toISOString(); s.remoteSavedAt = remote.doc.savedAt ?? r; }
+        const m = mergeRemote(remote.doc, local); m.deleted = [];
+        this.setDb(m); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled';
+      }
+      if (new Date(l).getTime() > new Date(r).getTime()) { await this.send(t); this.mark(null); return 'pushed'; }
       this.mark(null); return 'same';
     } catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); return 'none'; }
     finally { this.busy = false; }

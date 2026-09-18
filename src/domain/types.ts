@@ -148,7 +148,7 @@ export interface Settings {
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true
   skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
   notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
-  storage?: { kind: 'local' | 'drive' | 'supabase'; windowDays?: number | null; driveClientId?: string; driveFolder?: string; supabaseUrl?: string; supabaseSecret?: string; lastSync?: ISO; lastError?: string }; // 保存場所（外の写し）。省略＝端末のみ
+  storage?: { kind: 'local' | 'drive' | 'supabase'; windowDays?: number | null; lastPushedAt?: ISO; remoteSavedAt?: ISO; driveClientId?: string; driveFolder?: string; supabaseUrl?: string; supabaseSecret?: string; lastSync?: ISO; lastError?: string }; // 保存場所（外の写し）。省略＝端末のみ
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）
 }
@@ -161,6 +161,7 @@ export interface Db {
   savedAt?: ISO;               // 端末が最後に保存した時刻（外の写しと比べて「新しい方が勝つ」の基準）
   window?: { from: YMD } | null; // 外の写しだけに付く印＝「記録はこの日から先のぶんだけ入っている」。取り込む側はこの日より前を触らない
   inbox?: InboxItem[];
+  deleted?: string[];          // 消した記録の id（まだ外に伝えていないぶん）。送れたら空にする＝差分で「消した」を伝えるため
   tracks: Track[];
   entries: Entry[];
   templates: Template[];
