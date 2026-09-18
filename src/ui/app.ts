@@ -8,12 +8,13 @@ import { todayYMD, addDays, addMonths, weekStartOf, DOW_JA, dowOf } from '../dom
 import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, planDurationOf, actualDurationOf, primaryMinute, slotRange } from '../domain/slots';
 import { openEntryForm, openTemplates, openRules } from './forms';
 import { h as hh, modal } from './dom';
+import { speechAvailable, listen } from './voice';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v9';
+export const BUILD = 'v10';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -109,16 +110,23 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
 let lastToast = '';
 function signalBar(track: Track | null): HTMLElement {
   const inp = h('input', { class: 'sig', placeholder: track ? `${track.name}への合図＝「開始」「終了」「30分」「やった」…` : '合図＝「座禅開始」「散歩終了」「散歩 30分」「昼ごはん やった」…', enterkeyhint: 'send' });
-  const go = () => {
-    const text = inp.value.trim(); if (!text) return;
+  const go = (text = inp.value.trim()) => {
+    if (!text) return;
     const r = repo.applySignal(text, track?.id);
     lastToast = r.message; inp.value = '';
     render();
   };
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  // 🎤 押す → 聞く（途中経過を欄に出す）→ 確定したらそのまま通す。もう一度押すと止める
+  let rec: { stop: () => void } | null = null;
+  const mic = speechAvailable() ? h('button', { class: 'mic', title: '音声で合図（日本語）', onclick: () => {
+    if (rec) { rec.stop(); rec = null; mic!.classList.remove('on'); return; }
+    mic!.classList.add('on'); inp.placeholder = '🎤 聞いています…';
+    rec = listen((t) => { inp.value = t; }, (t) => { rec = null; mic!.classList.remove('on'); inp.value = t; go(t); }, (msg) => { rec = null; mic!.classList.remove('on'); lastToast = `⚠ ${msg}`; render(); });
+  } }, '🎤') : null;
   const run = repo.running(track?.id);
   return h('div', { class: 'sigBar' },
-    h('span', { class: 'inline grow' }, inp, h('button', { class: 'primary', onclick: go }, '入れる')),
+    h('span', { class: 'inline grow' }, inp, mic, h('button', { class: 'primary', onclick: () => go() }, '入れる')),
     run.length ? h('button', { class: 'runBtn', title: '進行中の記録（押して終了）', onclick: () => openRunning() }, `⏵ 進行中 ${run.length}`) : null,
     lastToast ? h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast) : null);
 }
