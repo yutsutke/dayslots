@@ -71,6 +71,16 @@ export function targetFor(s: StorageSettings | undefined): SyncTarget | null {
   return s.kind === 'drive' ? new DriveTarget(s) : new SupabaseTarget(s);
 }
 
+/** 外に出す形＝鍵（🤖 BYOK）と保存場所の設定は**送らない**（鍵は端末ごとに入れる・外の写しに秘密を置かない） */
+export function forExport(doc: Db): Db {
+  const { ai: _ai, storage: _st, ...rest } = doc.settings;
+  return { ...doc, settings: rest as Db['settings'] };
+}
+/** 取り込む形＝外の写しに、この端末の鍵と保存場所の設定を戻す */
+function merged(remote: Db, local: Db): Db {
+  return { ...remote, settings: { ...remote.settings, ai: local.settings.ai, storage: local.settings.storage } };
+}
+
 /** 同期の係＝保存のたびに 3 秒待ってから押し出す。開いたときは外が新しければ取り込む */
 export class Syncer {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -85,7 +95,7 @@ export class Syncer {
   async pushNow(): Promise<void> {
     const t = this.target(); if (!t?.configured() || this.busy) return;
     this.busy = true;
-    try { await t.push(this.getDb()); this.mark(null); this.onState(`☁ ${t.name} に保存 ${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`); }
+    try { await t.push(forExport(this.getDb())); this.mark(null); this.onState(`☁ ${t.name} に保存 ${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`); }
     catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); }
     finally { this.busy = false; }
   }
@@ -95,10 +105,10 @@ export class Syncer {
     this.busy = true;
     try {
       const remote = await t.pull(); const local = this.getDb();
-      if (!remote) { await t.push(local); this.mark(null); return 'pushed'; }
+      if (!remote) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
       const r = remote.savedAt, l = local.savedAt ?? '';
-      if (r > l) { remote.doc.settings.storage = local.settings.storage; this.setDb(remote.doc); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled'; }
-      if (l > r) { await t.push(local); this.mark(null); return 'pushed'; }
+      if (r > l) { this.setDb(merged(remote.doc, local)); this.mark(null); this.onState(`☁ ${t.name} から取り込みました（${r.slice(0, 16).replace('T', ' ')}）`); return 'pulled'; }
+      if (l > r) { await t.push(forExport(local)); this.mark(null); return 'pushed'; }
       this.mark(null); return 'same';
     } catch (e) { this.mark((e as Error).message); this.onState(`⚠ ${(e as Error).message}`, true); return 'none'; }
     finally { this.busy = false; }
