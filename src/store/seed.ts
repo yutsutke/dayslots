@@ -7,7 +7,7 @@ import { todayYMD, addDays } from '../domain/dates';
 export function seedDb(today = todayYMD()): Db {
   const iso = new Date().toISOString();
   const mk = (kind: keyof typeof PRESETS, id: string, order: number): Track => ({ ...structuredClone(PRESETS[kind]), id, sortOrder: order, archived: false });
-  const tracks = [mk('todo', 't-todo', 0), mk('meal', 't-meal', 1), mk('activity', 't-act', 2), mk('habit', 't-zazen', 3)];
+  const tracks = [mk('todo', 't-todo', 0), mk('meal', 't-meal', 1), mk('activity', 't-act', 2), mk('habit', 't-zazen', 3), mk('receipt', 't-rcpt', 4)];
   const base: Omit<Entry, 'id' | 'trackId' | 'date' | 'title'> = {
     slotKey: null, planStart: null, planEnd: null, actualDate: null, actualStart: null, actualEnd: null,
     doneAt: null, skippedAt: null, insteadOfId: null, note: null, priority: 0, tag: null, templateId: null,

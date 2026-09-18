@@ -7,6 +7,9 @@ import { FREQ_LABEL, describeRule } from '../domain/recur';
 import { DOW_JA } from '../domain/dates';
 import { eventFor } from '../sync/calendar';
 import { uid } from '../app/repo';
+import { nowMinute } from '../domain/dates';
+import { aiConfigured, readReceipt, readMeal, type ReceiptRead } from '../ai/byok';
+import { pickImages, importPhoto, imageOf, delBlob, urlOf } from './photos';
 
 const slotButtons = (track: Track, get: () => string | null, set: (k: string | null) => void, autoLabel: string) =>
   h('div', { class: 'btns' },
@@ -17,10 +20,15 @@ const originButtons = (get: () => unknown, set: (v: string | undefined) => void)
   h('div', { class: 'btns' }, ([['home', '🏠 手作り'], ['store', '🏪 中食'], ['out', '🍴 外食']] as const).map(([k, l]) =>
     h('button', { class: get() === k ? 'on' : '', onclick: () => set(get() === k ? undefined : k) }, l)));
 
-/** ⏱ 何分＝始まり・終わりと無関係に長さだけ入れる欄。両方入っていれば「計算だと N分」を添える */
+/** ⏱ 何分＝始まり・終わりと無関係に長さだけ入れる欄。0 から5分刻み（▲▼）。＋30分／＋1時間／＋3時間 の押しボタンで足す。両方入っていれば「計算だと N分」を添える */
 const durInput = (get: () => number | null | undefined, set: (v: number | null) => void, computed: number | null) =>
-  h('span', { class: 'inline durIn' }, '⏱', h('input', { type: 'number', min: 1, step: 5, placeholder: '分', value: get() ?? '', style: { width: '4.5em' }, oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); set(v > 0 ? v : null); } }), '分',
+  h('span', { class: 'inline durIn' }, '⏱',
+    h('input', { type: 'number', min: 0, step: 5, placeholder: '分', value: get() ?? '', style: { width: '4.5em' }, oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); set(v > 0 ? v : null); } }), '分',
+    ([[30, '＋30分'], [60, '＋1時間'], [180, '＋3時間']] as const).map(([n, l]) => h('button', { class: 'ghost sm', onclick: () => set((get() ?? 0) + n) }, l)),
+    get() != null ? h('button', { class: 'ghost sm', title: '空にする', onclick: () => set(null) }, '✕') : null,
     computed != null && get() == null ? hint(`（始まり〜終わりだと ${fmtDur(computed)}）`) : null);
+/** 「今」＝いまの時刻を入れる（分まで） */
+const nowBtn = (set: (m: number) => void) => h('button', { class: 'ghost sm', title: 'いまの時刻を入れる', onclick: () => set(nowMinute()) }, '今');
 const spanDur = (a: number | null, b: number | null) => (a != null && b != null && b > a ? b - a : null);
 
 const priorityButtons = (get: () => Priority, set: (p: Priority) => void) =>
@@ -45,12 +53,12 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
         hint(`→ 置き場: ${landing ? landing.icon + ' ' + landing.label : '?'}${d.slotKey == null ? '（時刻から。時刻が無ければ受け皿）' : '（選んだ枡が勝つ）'}`)),
       field(track.features.actualFirst ? '予定（決めていれば）' : '予定', h('div', { class: 'inline' },
         h('input', { type: 'date', value: d.date, oninput: (e: Event) => { d.date = (e.target as HTMLInputElement).value || d.date; } }),
-        timeInput(d.planStart, (v) => { d.planStart = v; draw(); }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; draw(); }),
+        timeInput(d.planStart, (v) => { d.planStart = v; draw(); }), nowBtn((m) => { d.planStart = m; draw(); }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; draw(); }), nowBtn((m) => { d.planEnd = m; draw(); }),
         durInput(() => d.planDur, (v) => { d.planDur = v; draw(); }, spanDur(d.planStart, d.planEnd))),
         hint('時刻は無くてもよい＝「30分やる」だけでも書ける')),
       field(track.features.actualFirst ? '実際（食べた・やった）' : '実際', h('div', { class: 'inline' },
         h('input', { type: 'date', value: d.actualDate ?? '', oninput: (e: Event) => { d.actualDate = (e.target as HTMLInputElement).value || null; } }),
-        timeInput(d.actualStart, (v) => { d.actualStart = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }), '〜', timeInput(d.actualEnd, (v) => { d.actualEnd = v; draw(); }),
+        timeInput(d.actualStart, (v) => { d.actualStart = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }), nowBtn((m) => { d.actualStart = m; d.actualDate ??= d.date; draw(); }), '〜', timeInput(d.actualEnd, (v) => { d.actualEnd = v; draw(); }), nowBtn((m) => { d.actualEnd = m; d.actualDate ??= d.date; draw(); }),
         durInput(() => d.actualDur, (v) => { d.actualDur = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }, spanDur(d.actualStart, d.actualEnd)))),
     ];
     if (track.features.done) {
@@ -61,7 +69,8 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
         priorityButtons(() => d.priority, (p) => { d.priority = p; draw(); })));
     }
     if (track.kind === 'meal') out.push(field('出どころ', originButtons(() => d.payload.origin, (v) => { d.payload = { ...d.payload, origin: v }; draw(); })));
-    if (track.features.photos) out.push(field('📷 写真', hint(`${d.photos.length} 枚（カメラ・写真の取り込みは Phase 2＝Capacitor Camera。いまは枚数だけ）`)));
+    if (track.features.photos) out.push(photoField(ctx, track, d, draw));
+    if (track.kind === 'receipt') out.push(receiptField(d));
     out.push(field('メモ', h('textarea', { rows: 2, value: d.note ?? '', oninput: (e: Event) => { d.note = (e.target as HTMLTextAreaElement).value || null; } })));
     if (track.features.calendar) {
       out.push(field('📅 Google カレンダー',
@@ -83,6 +92,64 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
     return out;
   };
   draw();
+}
+
+// ── 📷 写真 ＋ 🤖 読み取り ─────────────────────────────────
+type AiState = { status: 'pending' | 'done' | 'error'; at?: string; error?: string; model?: string };
+const aiState = (d: Entry): AiState | undefined => d.payload.ai as AiState | undefined;
+
+/** 写真を AI に読ませ、結果を記録に写す。⚠ 人が直した題名・メモは上書きしない（空のときだけ入れる） */
+async function runAi(ctx: Ctx, track: Track, d: Entry, draw: () => void): Promise<void> {
+  const a = ctx.repo.db.settings.ai;
+  if (!aiConfigured(a) || !a) { alert('🤖 AI の鍵がまだ入っていません（⚙ → 🤖 AI）'); return; }
+  const imgs = (await Promise.all(d.photos.map(imageOf))).filter((x): x is NonNullable<typeof x> => x != null);
+  if (!imgs.length) { alert('写真がありません'); return; }
+  d.payload = { ...d.payload, ai: { status: 'pending' } as AiState }; draw();
+  try {
+    if (track.features.ai === 'receipt') {
+      const r = await readReceipt(a, imgs, d.note ?? '');
+      d.payload = { ...d.payload, receipt: r, ai: { status: 'done', at: new Date().toISOString(), model: a.model } as AiState };
+      if (!d.title.trim() || d.title === track.name) d.title = [r.store, r.total != null ? `¥${r.total.toLocaleString()}` : ''].filter(Boolean).join(' ') || 'レシート';
+      if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) { d.actualDate = r.date; d.date = r.date; }
+      if (r.time) { const [hh, mm] = r.time.split(':').map(Number); if (hh < 24) { d.actualStart = hh * 60 + mm; d.actualDate ??= d.date; } }
+    } else {
+      const r = await readMeal(a, imgs, d.note ?? '');
+      d.payload = { ...d.payload, meal: r, ai: { status: 'done', at: new Date().toISOString(), model: a.model } as AiState };
+      if (!d.title.trim()) d.title = r.summary ?? '';
+      if (!d.payload.origin && r.origin) d.payload = { ...d.payload, origin: r.origin };
+    }
+  } catch (e) {
+    d.payload = { ...d.payload, ai: { status: 'error', at: new Date().toISOString(), error: (e as Error).message } as AiState };
+  }
+  draw();
+}
+
+function photoField(ctx: Ctx, track: Track, d: Entry, draw: () => void): HTMLElement {
+  const st = aiState(d);
+  const add = async () => {
+    const files = await pickImages(true); if (!files.length) return;
+    for (const f of files) { try { const { photo } = await importPhoto(f); d.photos = [...d.photos, photo]; } catch (e) { alert((e as Error).message); } }
+    draw();
+    if (track.features.ai && aiConfigured(ctx.repo.db.settings.ai)) void runAi(ctx, track, d, draw); // 鍵があれば、上げたらすぐ読む
+  };
+  return field('📷 写真', h('div', { class: 'thumbs' },
+      d.photos.map((p, i) => h('span', { class: 'thumbWrap' },
+        h('img', { class: 'thumb lg', src: p.thumb ?? p.path, alt: '', onclick: async () => { window.open(await urlOf(p), '_blank'); } }),
+        h('button', { class: 'x', title: 'この写真を外す', onclick: () => { if (!confirm('この写真を外しますか？')) return; const [gone] = d.photos.splice(i, 1); if (gone.path.startsWith('idb:')) void delBlob(gone.path.slice(4)); d.photos = [...d.photos]; draw(); } }, '✕')))),
+    h('div', { class: 'btns' },
+      h('button', { onclick: add }, '📷 撮る／選ぶ'),
+      track.features.ai ? h('button', { disabled: !d.photos.length || st?.status === 'pending', onclick: () => void runAi(ctx, track, d, draw) }, st?.status === 'pending' ? '🤖 読んでいます…' : '🤖 読み取る') : null),
+    st?.status === 'error' ? hint(`⚠ ${st.error ?? '読めませんでした'}`) : st?.status === 'done' ? hint(`🤖 読み取り済（${(st.at ?? '').slice(0, 16).replace('T', ' ')}・${st.model ?? ''}）`) : track.features.ai && !aiConfigured(ctx.repo.db.settings.ai) ? hint('🤖 読ませるには ⚙ → 🤖 AI に本人の鍵を入れる（BYOK）') : null);
+}
+
+/** 🧾 読み取った中身（店・日時・合計・品目）。直すのは ここでは題名とメモ＝品目の手直しは Phase 2 */
+function receiptField(d: Entry): HTMLElement {
+  const r = d.payload.receipt as ReceiptRead | undefined;
+  if (!r) return field('🧾 中身', hint('写真を上げて 🤖 読み取る と、店・日時・合計・品目がここに出ます'));
+  return field('🧾 中身', h('div', { class: 'rcpt' },
+    h('div', null, h('b', null, r.store ?? '(店名 不明)'), ' ', h('small', null, [r.date, r.time, r.payment].filter(Boolean).join(' ')), ' ', h('b', { class: 'yen' }, r.total != null ? `¥${r.total.toLocaleString()}` : '')),
+    r.items.length ? h('table', { class: 'items' }, r.items.map((it) => h('tr', null, h('td', null, it.name), h('td', { class: 'n' }, it.qty != null && it.qty !== 1 ? `×${it.qty}` : ''), h('td', { class: 'n' }, it.price != null ? `¥${it.price.toLocaleString()}` : '')))) : hint('品目は読めませんでした'),
+    r.note ? hint(`🤖 ${r.note}`) : null));
 }
 
 // ── ⭐ いつもの ───────────────────────────────────────────
@@ -119,7 +186,7 @@ function openTemplateForm(ctx: Ctx, track: Track, tpl: Template | null, onSaved:
       field('なに（記録に入る文）', h('input', { value: d.title, oninput: (e: Event) => { d.title = (e.target as HTMLInputElement).value; } })),
       field('既定の枡', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, 'どの枡でも'), hint('縛りではない＝呼んだ先の枡が勝つ（朝食のメニューを昼にも使える）')),
       field('既定の時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }),
-        durInput(() => d.planDur, (v) => { d.planDur = v; }, null))),
+        durInput(() => d.planDur, (v) => { d.planDur = v; draw(); }, null))),
     ];
     if (track.kind === 'meal') out.push(field('出どころ', originButtons(() => d.payload.origin, (v) => { d.payload = { ...d.payload, origin: v }; draw(); })));
     out.push(field('メモ', h('textarea', { rows: 2, value: d.note ?? '', oninput: (e: Event) => { d.note = (e.target as HTMLTextAreaElement).value || null; } })));
@@ -183,7 +250,7 @@ export function openRuleForm(ctx: Ctx, track: Track, rule: Rule, onSaved?: () =>
         h('input', { type: 'date', value: d.endDate ?? '', oninput: (e: Event) => { d.endDate = (e.target as HTMLInputElement).value || null; } }), hint('終わりが空＝ずっと'))),
       field('枡（時間帯）', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, '時刻から自動')),
       field('時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }),
-        durInput(() => d.planDur, (v) => { d.planDur = v; }, null))),
+        durInput(() => d.planDur, (v) => { d.planDur = v; draw(); }, null))),
       field('入り方', h('div', { class: 'btns' },
         h('button', { class: !d.auto ? 'on' : '', onclick: () => { d.auto = false; draw(); } }, '確認してから（薄く出す）'),
         h('button', { class: d.auto ? 'on' : '', onclick: () => { d.auto = true; draw(); } }, '自動で入る'))),

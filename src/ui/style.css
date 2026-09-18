@@ -118,6 +118,17 @@ table.allgrid td.cell.all .ghostTxt { color: var(--ghost); }
 .row.tl .times { flex-basis: 72px; font-size: 13px; }
 .row.tl.ghostTxt { color: var(--ghost); }
 .tkicon { margin-right: 2px; }
+/* 📷 写真・🧾 レシート・小さな押しボタン */
+button.sm { padding: 2px 6px; font-size: 12px; }
+.durIn { gap: 3px; }
+.thumbWrap { position: relative; display: inline-block; }
+.thumbWrap .x { position: absolute; top: -6px; right: -6px; padding: 0 5px; font-size: 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.thumb.lg { width: 96px; height: 96px; cursor: zoom-in; }
+.rcpt { font-size: 13px; }
+.rcpt .yen { color: #f0883e; }
+.rcpt table.items { border-collapse: collapse; margin-top: 4px; }
+.rcpt table.items td { padding: 1px 6px 1px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.rcpt table.items td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .lnk { cursor: pointer; }
 .review .lnk:hover { text-decoration: underline; }
 

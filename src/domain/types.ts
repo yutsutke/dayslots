@@ -12,7 +12,7 @@ export type YMD = string;    // 'YYYY-MM-DD'（端末の暦＝JST）
 export type Minute = number; // その日の 0:00 からの分（0..1440）
 export type ISO = string;    // ISO 8601 の時刻
 
-export type TrackKind = 'todo' | 'meal' | 'activity' | 'habit' | 'custom';
+export type TrackKind = 'todo' | 'meal' | 'activity' | 'habit' | 'receipt' | 'custom';
 
 export interface SlotDef {
   key: string;            // 内部名（保存される値・改名しない）
@@ -30,6 +30,7 @@ export interface TrackFeatures {
   calendar: boolean;    // 📅 時刻つきの記録を Google カレンダーに出せる
   actualFirst: boolean; // 「実際」を主にする（食事＝食べた事実）／false＝「予定」を主にする（やること）
   daily?: boolean;      // 一日一回（座禅・薬）＝その日に ✅／🚫 を1タップ。詳細（時刻・メモ）は任意。省略＝false
+  ai?: 'receipt' | 'meal' | null; // 🤖 写真を AI に読ませる種類（本人の鍵＝BYOK）。省略＝読ませない
 }
 
 export interface Track {
@@ -140,6 +141,7 @@ export interface ShowFlags { time: boolean; duration: boolean; note: boolean; ph
 export interface Settings {
   weekStart: 0 | 1;            // 週の始まり 0=日曜／1=月曜
   show?: ShowFlags;            // 省略＝既定（時刻・分・写真は出す、コメントは出さない）
+  ai?: { provider: 'anthropic' | 'gemini'; key: string; model: string }; // 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）
 }

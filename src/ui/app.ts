@@ -12,7 +12,7 @@ import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v7';
+export const BUILD = 'v8';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -108,7 +108,8 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
 function allReviewBar(from: YMD, to: YMD): HTMLElement {
   const parts = repo.tracks.map((t) => {
     const s = repo.summary(t.id, from, to);
-    const body = isDaily(t) ? `✅${s.done} 🔥${repo.streak(t.id, todayYMD())}日` : t.features.done ? `✅${s.done}/${s.total}${s.skipped ? ` 🚫${s.skipped}` : ''}` : `${s.total}件`;
+    const ds = repo.durationStats(t.id, from, to);
+    const body = (isDaily(t) ? `✅${s.done} 🔥${repo.streak(t.id, todayYMD())}日` : t.features.done ? `✅${s.done}/${s.total}${s.skipped ? ` 🚫${s.skipped}` : ''}` : `${s.total}件`) + (ds.total ? ` ⏱${fmtDur(ds.total)}` : '');
     return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
   });
   const pend = pending(repo).length;
@@ -154,6 +155,9 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
     ? [`✅ ${s.done}`, `🚫 ${s.skipped}`, ...(isDaily(track) ? [] : [`まだ ${s.open}`]), `🔁 ${s.ghosts}`]
     : [`${track.icon} ${s.total} 件`, `🔁 ${s.ghosts}`];
   if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, todayYMD())} 日`);
+  const ds = repo.durationStats(track.id, from, to);
+  if (ds.total > 0) parts.push(`⏱ 合計 ${fmtDur(ds.total)} · 平均 ${fmtDur(ds.avg)}/回（${ds.count}回）`);
+  if (track.kind === 'receipt') { const yen = repo.entriesFor(track.id, from, to).reduce((a, e) => a + (Number((e.payload.receipt as { total?: number } | undefined)?.total) || 0), 0); if (yen) parts.push(`💴 ¥${yen.toLocaleString()}`); }
   if (track.kind === 'meal') {
     const es = repo.entriesFor(track.id, from, to);
     const c = (o: string) => es.filter((e) => e.payload.origin === o).length;
@@ -306,7 +310,8 @@ function marks(e: Entry, m: number | null): HTMLElement {
   const origin = e.payload.origin as string | undefined;
   return h('span', { class: 'marks' },
     e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.templateId ? '⭐' : '', e.calendar && m != null ? '📅' : '',
-    origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length && !show().photos ? `📷${e.photos.length}` : '');
+    origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length && !show().photos ? `📷${e.photos.length}` : '',
+    (e.payload.ai as { status?: string } | undefined)?.status === 'pending' ? '🤖…' : (e.payload.ai as { status?: string } | undefined)?.status === 'error' ? '🤖⚠' : '');
 }
 
 function chip(track: Track, e: Entry): HTMLElement {

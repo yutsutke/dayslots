@@ -12,6 +12,7 @@ import type { Store } from '../store/store';
 import { occurrences, type Occurrence } from '../domain/recur';
 import { todayYMD, addDays } from '../domain/dates';
 import { PRESETS } from '../domain/defaults';
+import { durationOf } from '../domain/slots';
 
 const nowIso = () => new Date().toISOString();
 export const uid = (): string =>
@@ -216,6 +217,12 @@ export class Repo {
     const es = this.entriesFor(trackId, from, to);
     const done = es.filter((e) => e.doneAt).length, skipped = es.filter((e) => e.skippedAt).length;
     return { total: es.length, done, skipped, open: es.length - done - skipped, ghosts: this.ghostsFor(trackId, from, to).length };
+  }
+  /** ⏱ 合計と平均＝長さのある記録（🚫 は除く）。平均は「回」あたり */
+  durationStats(trackId: string, from: YMD, to: YMD): { total: number; count: number; avg: number } {
+    const ds = this.entriesFor(trackId, from, to).filter((e) => !e.skippedAt).map((e) => durationOf(e)).filter((d): d is number => d != null && d > 0);
+    const total = ds.reduce((a, b) => a + b, 0);
+    return { total, count: ds.length, avg: ds.length ? Math.round(total / ds.length) : 0 };
   }
   exportJson(): string { return JSON.stringify(this.db, null, 1); }
   importJson(s: string): void {

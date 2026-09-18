@@ -28,7 +28,7 @@ export const PRESETS: Record<TrackKind, TrackPreset> = {
       { key: 'snack', label: '間食', icon: '🍪', startMin: null },
     ],
     fallbackKey: 'snack',
-    features: { done: false, photos: true, calendar: false, actualFirst: true },
+    features: { done: false, photos: true, calendar: false, actualFirst: true, ai: 'meal' },
   },
   activity: {
     name: '運動', icon: '🏃', kind: 'activity',
@@ -48,6 +48,18 @@ export const PRESETS: Record<TrackKind, TrackPreset> = {
     fallbackKey: 'day',
     features: { done: true, photos: false, calendar: true, actualFirst: true, daily: true },
   },
+  receipt: {
+    // 🧾 レシート＝写真を上げると AI（本人の鍵）が読み取って書き起こす。金額は写っている数字なので持つ（payload.receipt）
+    name: 'レシート', icon: '🧾', kind: 'receipt',
+    slots: [
+      { key: 'morning', label: '午前', icon: '🌅', startMin: 0 },
+      { key: 'midday', label: '昼', icon: '☀️', startMin: 11 * 60 },
+      { key: 'afternoon', label: '午後', icon: '🌇', startMin: 14 * 60 },
+      { key: 'evening', label: '夕方以降', icon: '🌙', startMin: 17 * 60 },
+    ],
+    fallbackKey: 'morning',
+    features: { done: false, photos: true, calendar: false, actualFirst: true, ai: 'receipt' },
+  },
   custom: {
     name: '新しい種目', icon: '📌', kind: 'custom',
     slots: [
@@ -60,5 +72,5 @@ export const PRESETS: Record<TrackKind, TrackPreset> = {
   },
 };
 export const KIND_LABEL: Record<TrackKind, string> = {
-  todo: 'やること型（✅ を使う）', meal: '食事型（実際が主・📷）', activity: '運動型（✅・時刻つき）', habit: '一日一回型（座禅・薬＝その日 ✅/🚫 を1タップ）', custom: '白紙',
+  todo: 'やること型（✅ を使う）', meal: '食事型（実際が主・📷）', activity: '運動型（✅・時刻つき）', habit: '一日一回型（座禅・薬＝その日 ✅/🚫 を1タップ）', receipt: 'レシート型（📷 → 🤖 AI が書き起こす）', custom: '白紙',
 };

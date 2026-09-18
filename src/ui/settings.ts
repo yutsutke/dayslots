@@ -6,6 +6,7 @@ import { KIND_LABEL } from '../domain/defaults';
 import { validateSlots, slotRange } from '../domain/slots';
 import { GoogleViaEdgeFunction, pending, syncAll } from '../sync/calendar';
 import { seedDb } from '../store/seed';
+import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '../ai/byok';
 
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
@@ -38,6 +39,15 @@ export function openSettings(ctx: Ctx): void {
       h('div', { class: 'inline' },
         h('span', null, `未送信 ${pend} 件`),
         h('button', { onclick: async () => { const r = await syncAll(repo, new GoogleViaEdgeFunction(st.supabaseUrl, st.calendarSecret)); alert(`送った ${r.sent} · 消した ${r.removed}` + (r.errors.length ? `\n⚠ ${r.errors.join('\n')}` : '')); draw(); } }, 'いま送る')),
+
+      h('h3', null, '🤖 AI（BYOK＝本人の鍵）'),
+      h('p', { class: 'hint' }, '🧾 レシート・🍽 食事の写真を読ませるための鍵。鍵は**この端末の中だけ**に置き、AI の会社（Anthropic か Google）へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。'),
+      field('呼び先', h('select', { onchange: (e: Event) => { const p = (e.target as HTMLSelectElement).value as AiProvider; st.ai = { provider: p, key: st.ai?.key ?? '', model: AI_DEFAULT_MODEL[p] }; void repo.persist(); draw(); } },
+        (Object.keys(AI_PROVIDER_LABEL) as AiProvider[]).map((p) => h('option', { value: p, selected: (st.ai?.provider ?? 'anthropic') === p }, AI_PROVIDER_LABEL[p])))),
+      field('API キー', h('input', { type: 'password', value: st.ai?.key ?? '', placeholder: 'sk-ant-… / AIza…', oninput: (e: Event) => { st.ai = { provider: st.ai?.provider ?? 'anthropic', model: st.ai?.model ?? AI_DEFAULT_MODEL.anthropic, key: (e.target as HTMLInputElement).value.trim() }; void repo.persist(); } })),
+      field('モデル', h('input', { value: st.ai?.model ?? AI_DEFAULT_MODEL.anthropic, oninput: (e: Event) => { if (st.ai) { st.ai.model = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } } }), hint('空なら既定（Anthropic: claude-sonnet-5 ／ Gemini: gemini-2.5-flash）')),
+      h('div', { class: 'btns' }, h('button', { onclick: async () => { if (!st.ai?.key) { alert('鍵を入れてください'); return; } try { alert(`接続 OK: ${await pingAi(st.ai)}`); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '接続確認'),
+        st.ai?.key ? h('button', { class: 'danger', onclick: () => { if (confirm('鍵をこの端末から消しますか？')) { st.ai = undefined; void repo.persist(); draw(); } } }, '鍵を消す') : null),
 
       h('h3', null, '🗓 休み（有給・夏休みなど）'),
       h('p', { class: 'hint' }, '🔁 の「平日」「休日」「週の最初の平日」の判定に効きます（土日と日本の祝日は入れなくてよい）。1行に1日 YYYY-MM-DD。'),
@@ -73,7 +83,9 @@ function openTrackEditor(ctx: Ctx, track: Track, onSaved: () => void): void {
         chk('📷 写真を付ける', () => d.features.photos, (v) => { d.features.photos = v; }, '食事のように写真そのものが記録になる種目'),
         chk('📅 時刻つきの記録を Google カレンダーに出せる', () => d.features.calendar, (v) => { d.features.calendar = v; }, '記録ごとに出す／出さないを選べる'),
         chk('「実際」を主にする', () => d.features.actualFirst, (v) => { d.features.actualFirst = v; }, '食事のように、食べた時刻で枡を決める（外すと予定の時刻で決める）'),
-        chk('一日一回（1タップで ✅／🚫）', () => Boolean(d.features.daily), (v) => { d.features.daily = v; }, '座禅・薬のように「その日やったか」だけを付ける種目。週・月の升目が1タップの印になる。時刻やメモは「…」から足せる')),
+        chk('一日一回（1タップで ✅／🚫）', () => Boolean(d.features.daily), (v) => { d.features.daily = v; }, '座禅・薬のように「その日やったか」だけを付ける種目。週・月の升目が1タップの印になる。時刻やメモは「…」から足せる'),
+        field('🤖 写真を AI に読ませる', h('select', { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; d.features.ai = v === '' ? null : (v as 'receipt' | 'meal'); } },
+          [['', '読ませない'], ['receipt', '🧾 レシートとして（店・日時・合計・品目）'], ['meal', '🍽 食事として（要約・料理・出どころ）']].map(([v, l]) => h('option', { value: v, selected: (d.features.ai ?? '') === v }, l))))),
       h('h4', null, '枡（時間帯）'),
       h('p', { class: 'hint' }, '時刻で決まる枡＝「始まり」を入れる（終わりは次の枡の始まりまで。終わりを早めて隙間を作ると、その時刻の記録は受け皿へ）。時刻で決まらない枡（時間帯なし・間食）＝始まりを空にする＝選んだときだけ入る。'),
       h('table', { class: 'slotsEd' },

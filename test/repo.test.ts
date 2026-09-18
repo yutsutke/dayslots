@@ -128,6 +128,18 @@ describe('一日一回（座禅）＝1タップで なし → ✅ → 🚫 → �
   });
 });
 
+describe('⏱ 合計と平均（週・月の帯）', () => {
+  it('長さのある記録だけを数え、🚫 は除く。平均は回あたり', async () => {
+    const r = await open();
+    r.addEntry('t-zazen', { title: '座禅', date: '2026-09-10', doneAt: 'x', actualDur: 20 });
+    r.addEntry('t-zazen', { title: '座禅', date: '2026-09-11', doneAt: 'x', actualStart: 300, actualEnd: 340 });
+    r.addEntry('t-zazen', { title: '座禅', date: '2026-09-12', skippedAt: 'x', planDur: 99 });   // 🚫 は数えない
+    r.addEntry('t-zazen', { title: '座禅', date: '2026-09-13', doneAt: 'x' });                    // 長さ無し＝数えない
+    expect(r.durationStats('t-zazen', '2026-09-10', '2026-09-13')).toEqual({ total: 60, count: 2, avg: 30 });
+    expect(r.durationStats('t-zazen', '2026-09-01', '2026-09-05')).toEqual({ total: 0, count: 0, avg: 0 });
+  });
+});
+
 describe('📅 カレンダーに出すもの', () => {
   it('時刻が無い記録（枡だけ・時間帯なし）は終日で出す。「出す」を立てていない記録は出さない', async () => {
     const r = await open();
