@@ -5,14 +5,14 @@ import { Repo } from '../app/repo';
 import { LocalStore } from '../store/store';
 import { seedDb } from '../store/seed';
 import { todayYMD, addDays, addMonths, weekStartOf, DOW_JA, dowOf } from '../domain/dates';
-import { bucketOf, bucketOfOccurrence, fmtMin, primaryMinute, slotRange } from '../domain/slots';
+import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, primaryMinute, slotRange } from '../domain/slots';
 import { openEntryForm, openTemplates, openRules } from './forms';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
-import type { Entry, Track, YMD } from '../domain/types';
+import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v3';
+export const BUILD = 'v4';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
 type View = 'week' | 'day' | 'month';
@@ -28,6 +28,24 @@ export async function boot(el: HTMLElement): Promise<void> {
 }
 const ctx = (): Ctx => ({ repo, render, anchor: () => state.anchor });
 const isDaily = (t: Track) => Boolean(t.features.daily);
+const SHOW_DEF: ShowFlags = { time: true, duration: true, note: false, photos: true };
+const show = (): ShowFlags => ({ ...SHOW_DEF, ...(repo.db.settings.show ?? {}) });
+/** 升目に出すもの（🕐 何時から／⏱ 何分／💬 コメント／📷 写真）＝押して切り替える。端末の設定として残る */
+function viewToggles(): HTMLElement {
+  const f = show();
+  const b = (k: keyof ShowFlags, icon: string, title: string) =>
+    h('button', { class: 'tg ' + (f[k] ? 'on' : 'off'), title: `${title}（押すと${f[k] ? '隠す' : '出す'}）`, onclick: () => { repo.db.settings.show = { ...f, [k]: !f[k] }; void repo.persist(); render(); } }, icon);
+  return h('span', { class: 'toggles', title: '升目に出すもの' }, b('time', '🕐', '何時から'), b('duration', '⏱', '何分やった'), b('note', '💬', 'コメント'), b('photos', '📷', '写真'));
+}
+/** 記録の下に出す小さな行＝⏱ 何分／💬 コメント／📷 写真（表示の切替に従う） */
+function extras(e: Entry, small = false): (HTMLElement | null)[] {
+  const f = show(); const dur = durationOf(e);
+  return [
+    f.duration && dur != null && dur > 0 ? h('span', { class: 'dur' }, `⏱${fmtDur(dur)}`) : null,
+    f.note && e.note ? h('small', { class: 'sub note' }, `💬 ${e.note}`) : null,
+    f.photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, small ? 1 : 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null,
+  ];
+}
 
 /** 見ている範囲。月＝月初を含む週の頭から6週（42日）＝升目と同じ */
 function range(): [YMD, YMD] {
@@ -65,6 +83,7 @@ function header(track: Track, from: YMD, to: YMD): HTMLElement {
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
     h('button', { onclick: () => { state.anchor = todayYMD(); render(); } }, '今日'),
+    viewToggles(),
     h('span', { class: 'sp' }),
     h('button', { onclick: () => openTemplates(ctx(), track) }, '⭐ いつもの'),
     h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
@@ -114,8 +133,9 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
 function dayMark(e: Entry | undefined): string { return e?.doneAt ? '✅' : e?.skippedAt ? '🚫' : '◻️'; }
 function dayDetail(e: Entry | undefined): string {
   if (!e) return '';
-  const span = (a: number | null, b: number | null) => (a == null ? '' : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}`);
-  return [span(e.actualStart, e.actualEnd) || span(e.planStart, e.planEnd), e.note ?? ''].filter(Boolean).join(' · ');
+  const f = show(); const dur = durationOf(e);
+  const start = e.actualStart ?? e.planStart;
+  return [f.time && start != null ? `${fmtMin(start)}〜` : '', f.duration && dur ? `⏱${fmtDur(dur)}` : '', f.note && e.note ? `💬 ${e.note}` : ''].filter(Boolean).join(' · ');
 }
 function dailyWeek(track: Track, from: YMD): HTMLElement {
   const today = todayYMD();
@@ -126,7 +146,7 @@ function dailyWeek(track: Track, from: YMD): HTMLElement {
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
         h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)])),
-        h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : ''),
+        h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null),
         h('button', { class: 'ghost', title: '時刻・メモなどの詳細', onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '…'));
     }));
 }
@@ -152,7 +172,9 @@ function monthGrid(track: Track, from: YMD): HTMLElement {
     const shown = list.slice(0, 3);
     return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: goDay },
       h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null),
-      shown.map((e) => h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` }, primaryMinute(track, e) != null ? h('span', { class: 't' }, fmtMin(primaryMinute(track, e) as number)) : null, e.title)),
+      shown.map((e) => { const m = primaryMinute(track, e), dur = durationOf(e); return h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` },
+        show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title, show().duration && dur ? h('span', { class: 'dur' }, ` ⏱${fmtDur(dur)}`) : null,
+        show().photos && e.photos.length ? h('img', { class: 'thumb xs', src: e.photos[0].thumb ?? e.photos[0].path, alt: '' }) : null); }),
       list.length > 3 ? h('small', { class: 'sub' }, `＋${list.length - 3}`) : null,
       gl.length ? h('small', { class: 'sub ghostTxt' }, `🔁 ${gl.length}`) : null);
   };
@@ -171,7 +193,7 @@ function marks(e: Entry, m: number | null): HTMLElement {
   const origin = e.payload.origin as string | undefined;
   return h('span', { class: 'marks' },
     e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.templateId ? '⭐' : '', e.calendar && m != null ? '📅' : '',
-    origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length ? `📷${e.photos.length}` : '');
+    origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length && !show().photos ? `📷${e.photos.length}` : '');
 }
 
 function chip(track: Track, e: Entry): HTMLElement {
@@ -181,8 +203,9 @@ function chip(track: Track, e: Entry): HTMLElement {
   const of = e.insteadOfId ? repo.entry(e.insteadOfId) : undefined;
   return h('div', { class: `chip ${st}`, onclick: () => openEntryForm(ctx(), track, e) },
     statusBox(track, e),
-    h('span', { class: 'ttl' }, m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title || '(無題)'),
+    h('span', { class: 'ttl' }, show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title || '(無題)'),
     marks(e, m),
+    ...extras(e),
     of ? h('small', { class: 'sub' }, `${of.title} の代わり`) : null,
     inst ? h('small', { class: 'sub' }, `代わりに ${inst.title}`) : null);
 }
@@ -221,7 +244,7 @@ function row(track: Track, e: Entry): HTMLElement {
     h('div', { class: 'times' },
       h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd)),
       h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd))),
-    h('div', { class: 'ttl' }, e.title, marks(e, primaryMinute(track, e)), e.note ? h('small', { class: 'sub' }, e.note) : null));
+    h('div', { class: 'ttl' }, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
 }
 
 function footer(): HTMLElement {

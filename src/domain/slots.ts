@@ -36,6 +36,13 @@ export function slotRange(t: Track, key: string): string {
   const a = s.startMin, b = slotEnd(t, key) as number;
   return `${a ? fmtMin(a) : '0:00'}〜${b < 1440 ? fmtMin(b) : '24:00'}`;
 }
+/** 何分やったか＝実際の開始〜終わり（無ければ予定）。片方しか無ければ null */
+export function durationOf(e: Pick<Entry, 'planStart' | 'planEnd' | 'actualStart' | 'actualEnd'>): Minute | null {
+  if (e.actualStart != null && e.actualEnd != null) return e.actualEnd - e.actualStart;
+  if (e.planStart != null && e.planEnd != null) return e.planEnd - e.planStart;
+  return null;
+}
+export const fmtDur = (m: Minute): string => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`);
 /** その記録の「主な時刻」＝種目が実際を主にするなら実際（無ければ予定）、そうでなければ予定（無ければ実際） */
 export function primaryMinute(t: Track, e: Pick<Entry, 'planStart' | 'actualStart'>): Minute | null {
   return t.features.actualFirst ? (e.actualStart ?? e.planStart) : (e.planStart ?? e.actualStart);
