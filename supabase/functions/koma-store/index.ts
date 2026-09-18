@@ -6,10 +6,12 @@
 // ⚠ 丸ごと1行＝1人1台ずつの前提。行単位（複数端末で同時に書く）は Phase 3。
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-koma-secret', 'access-control-allow-methods': 'GET, PUT, OPTIONS' } });
+const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-koma-secret, authorization, apikey', 'access-control-allow-methods': 'GET, PUT, OPTIONS' };
+const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json', ...CORS } });
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') return json({}, 204);
+  // ⚠ 事前確認（OPTIONS）は**本文なし**で返す＝204 に本文を付けると Deno が例外を投げて 500 になり、ブラウザは「Failed to fetch」になる（2026-09-18 に実際に踏んだ）
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   const secret = Deno.env.get('KOMA_SECRET') ?? '';
   if (!secret || req.headers.get('x-koma-secret') !== secret) return json({ error: 'unauthorized' }, 401);
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
