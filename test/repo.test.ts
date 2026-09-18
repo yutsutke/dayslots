@@ -146,6 +146,17 @@ describe('📅 カレンダーに出すもの', () => {
     r.updateEntry(e.id, { doneAt: 'now', actualDate: '2026-09-18', actualStart: 700, actualEnd: null });
     expect(eventFor(t, e)).toMatchObject({ date: '2026-09-18', startMin: 700, endMin: 730 });
   });
+  it('⏱ 長さだけ書いた記録＝始まり＋長さ で終わりを決める（終わりの時刻より長さが勝つ）', async () => {
+    const r = await open();
+    const t = r.track('t-todo');
+    const e = r.addEntry('t-todo', { title: 'x', date: TODAY, planStart: 600, planDur: 45, calendar: true });
+    expect(eventFor(t, e)).toMatchObject({ startMin: 600, endMin: 645 });
+    r.updateEntry(e.id, { planEnd: 630 });
+    expect(eventFor(t, e)).toMatchObject({ startMin: 600, endMin: 645 });
+    r.updateEntry(e.id, { doneAt: 'now', actualDate: TODAY, actualStart: 700, actualDur: 20 });
+    expect(eventFor(t, e)).toMatchObject({ startMin: 700, endMin: 720 });
+    expect(eventFor(t, r.addEntry('t-todo', { title: 'y', date: TODAY, planDur: 30, calendar: true }))).toMatchObject({ allDay: true }); // 始まりが無ければ終日
+  });
   it('未送信＝対応表に無い／中身が変わった。送ったつもりの行があれば消える', async () => {
     const r = await open();
     const t = r.track('t-todo');

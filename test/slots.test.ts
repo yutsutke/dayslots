@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PRESETS } from '../src/domain/defaults';
-import { bucketOf, slotOfMinute, slotRange, validateSlots } from '../src/domain/slots';
+import { bucketOf, slotOfMinute, slotRange, validateSlots, durationOf, fmtDur } from '../src/domain/slots';
 import type { Track } from '../src/domain/types';
 
 const mk = (k: keyof typeof PRESETS): Track => ({ ...structuredClone(PRESETS[k]), id: k, sortOrder: 0, archived: false });
@@ -52,6 +52,24 @@ describe('枡の決め方（読むときに導く）', () => {
     expect(slotRange(todo, 'evening')).toBe('17:00〜24:00');
     expect(slotRange(meal, 'lunch')).toBe('10:30〜15:00');
     expect(slotRange(todo, 'none')).toBe('');
+  });
+});
+
+describe('⏱ 何分やったか（時刻と無関係な長さの入力）', () => {
+  const d = (p: Partial<{ planStart: number | null; planEnd: number | null; planDur: number | null; actualStart: number | null; actualEnd: number | null; actualDur: number | null }>) =>
+    ({ planStart: null, planEnd: null, planDur: null, actualStart: null, actualEnd: null, actualDur: null, ...p });
+  it('書いた長さが 始まり〜終わり より勝つ', () => {
+    expect(durationOf(d({ actualStart: 600, actualEnd: 660, actualDur: 45 }))).toBe(45);
+    expect(durationOf(d({ actualStart: 600, actualEnd: 660 }))).toBe(60);
+  });
+  it('実際が無ければ予定。長さだけの入力でも出る', () => {
+    expect(durationOf(d({ planDur: 30 }))).toBe(30);
+    expect(durationOf(d({ planStart: 600, planEnd: 620 }))).toBe(20);
+    expect(durationOf(d({ planDur: 30, actualDur: 25 }))).toBe(25);
+    expect(durationOf(d({}))).toBeNull();
+  });
+  it('表示＝60分以上は時間で', () => {
+    expect(fmtDur(25)).toBe('25分'); expect(fmtDur(60)).toBe('1時間'); expect(fmtDur(90)).toBe('1時間30分');
   });
 });
 

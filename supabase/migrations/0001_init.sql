@@ -18,7 +18,7 @@ create table if not exists public.koma_tracks (
   id            uuid primary key,
   name          text not null check (char_length(name) between 1 and 60),
   icon          text not null default '📌',
-  kind          text not null check (kind in ('todo', 'meal', 'activity', 'custom')),
+  kind          text not null check (kind in ('todo', 'meal', 'activity', 'habit', 'custom')),
   slots         jsonb not null default '[]'::jsonb,   -- [{key,label,icon,startMin|null,endMin?}] 表示順
   fallback_key  text not null,                         -- 受け皿の枡
   features      jsonb not null default '{}'::jsonb,   -- {done,photos,calendar,actualFirst}
@@ -39,6 +39,7 @@ create table if not exists public.koma_templates (
   photos        jsonb not null default '[]'::jsonb,   -- 記録と共有（実体は増やさない＝削除は両方を数えてから）
   plan_start    int check (plan_start is null or plan_start between 0 and 1439),
   plan_end      int check (plan_end   is null or plan_end   between 0 and 1440),
+  plan_dur      int check (plan_dur   is null or plan_dur   between 1 and 1440),
   calendar      boolean not null default false,
   sort_order    int not null default 0,
   created_at    timestamptz not null default now(),
@@ -63,6 +64,7 @@ create table if not exists public.koma_rules (
   slot_key      text,
   plan_start    int check (plan_start is null or plan_start between 0 and 1439),
   plan_end      int check (plan_end   is null or plan_end   between 0 and 1440),
+  plan_dur      int check (plan_dur   is null or plan_dur   between 1 and 1440),
   priority      smallint not null default 0 check (priority between -1 and 1),
   tag           text,
   auto          boolean not null default false,       -- true＝その日が来たら自動／false＝押した日だけ
@@ -83,9 +85,11 @@ create table if not exists public.koma_entries (
   slot_key      text,                                  -- 人が選んだ枡（null＝時刻から）
   plan_start    int check (plan_start is null or plan_start between 0 and 1439),
   plan_end      int check (plan_end   is null or plan_end   between 0 and 1440),
+  plan_dur      int check (plan_dur   is null or plan_dur   between 1 and 1440),   -- 予定の長さ（分）＝時刻と無関係に「30分やる」
   actual_date   date,
   actual_start  int check (actual_start is null or actual_start between 0 and 1439),
   actual_end    int check (actual_end   is null or actual_end   between 0 and 1440),
+  actual_dur    int check (actual_dur   is null or actual_dur   between 1 and 1440), -- 実際の長さ（分）＝「20分やった」だけの入力
   done_at       timestamptz,
   skipped_at    timestamptz,
   instead_of_id uuid references public.koma_entries(id) on delete set null,

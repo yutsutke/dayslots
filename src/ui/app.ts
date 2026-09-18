@@ -5,14 +5,14 @@ import { Repo } from '../app/repo';
 import { LocalStore } from '../store/store';
 import { seedDb } from '../store/seed';
 import { todayYMD, addDays, addMonths, weekStartOf, DOW_JA, dowOf } from '../domain/dates';
-import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, primaryMinute, slotRange } from '../domain/slots';
+import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, planDurationOf, actualDurationOf, primaryMinute, slotRange } from '../domain/slots';
 import { openEntryForm, openTemplates, openRules } from './forms';
 import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v6';
+export const BUILD = 'v7';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -351,12 +351,13 @@ function dayList(track: Track, d: YMD): HTMLElement {
   }));
 }
 function row(track: Track, e: Entry): HTMLElement {
-  const span = (a: number | null, b: number | null) => (a == null ? '—' : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}`);
+  // 時刻があれば「HH:MM–HH:MM」。時刻が無くて長さだけなら「⏱30分」。両方あれば時刻＋⏱
+  const span = (a: number | null, b: number | null, dur: number | null) => (a == null ? (dur != null ? `⏱${fmtDur(dur)}` : '—') : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}${dur != null && b == null ? ` ⏱${fmtDur(dur)}` : ''}`);
   return h('div', { class: `row ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}`, onclick: () => openEntryForm(ctx(), track, e) },
     statusBox(track, e),
     h('div', { class: 'times' },
-      h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd)),
-      h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd))),
+      h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd, planDurationOf(e))),
+      h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd, actualDurationOf(e)))),
     h('div', { class: 'ttl' }, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
 }
 

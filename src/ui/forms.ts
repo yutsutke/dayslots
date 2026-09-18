@@ -2,7 +2,7 @@
 import { h, modal, timeInput, field, hint, fill, type Child } from './dom';
 import type { Ctx } from './app';
 import type { Entry, Track, Template, Rule, Freq, Priority } from '../domain/types';
-import { bucketOf, fmtMin } from '../domain/slots';
+import { bucketOf, fmtMin, fmtDur } from '../domain/slots';
 import { FREQ_LABEL, describeRule } from '../domain/recur';
 import { DOW_JA } from '../domain/dates';
 import { eventFor } from '../sync/calendar';
@@ -16,6 +16,12 @@ const slotButtons = (track: Track, get: () => string | null, set: (k: string | n
 const originButtons = (get: () => unknown, set: (v: string | undefined) => void) =>
   h('div', { class: 'btns' }, ([['home', '🏠 手作り'], ['store', '🏪 中食'], ['out', '🍴 外食']] as const).map(([k, l]) =>
     h('button', { class: get() === k ? 'on' : '', onclick: () => set(get() === k ? undefined : k) }, l)));
+
+/** ⏱ 何分＝始まり・終わりと無関係に長さだけ入れる欄。両方入っていれば「計算だと N分」を添える */
+const durInput = (get: () => number | null | undefined, set: (v: number | null) => void, computed: number | null) =>
+  h('span', { class: 'inline durIn' }, '⏱', h('input', { type: 'number', min: 1, step: 5, placeholder: '分', value: get() ?? '', style: { width: '4.5em' }, oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); set(v > 0 ? v : null); } }), '分',
+    computed != null && get() == null ? hint(`（始まり〜終わりだと ${fmtDur(computed)}）`) : null);
+const spanDur = (a: number | null, b: number | null) => (a != null && b != null && b > a ? b - a : null);
 
 const priorityButtons = (get: () => Priority, set: (p: Priority) => void) =>
   h('div', { class: 'btns' }, ([[1, '❗ 高'], [0, 'ふつう'], [-1, '低']] as const).map(([p, l]) =>
@@ -39,10 +45,13 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
         hint(`→ 置き場: ${landing ? landing.icon + ' ' + landing.label : '?'}${d.slotKey == null ? '（時刻から。時刻が無ければ受け皿）' : '（選んだ枡が勝つ）'}`)),
       field(track.features.actualFirst ? '予定（決めていれば）' : '予定', h('div', { class: 'inline' },
         h('input', { type: 'date', value: d.date, oninput: (e: Event) => { d.date = (e.target as HTMLInputElement).value || d.date; } }),
-        timeInput(d.planStart, (v) => { d.planStart = v; draw(); }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; draw(); }))),
+        timeInput(d.planStart, (v) => { d.planStart = v; draw(); }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; draw(); }),
+        durInput(() => d.planDur, (v) => { d.planDur = v; draw(); }, spanDur(d.planStart, d.planEnd))),
+        hint('時刻は無くてもよい＝「30分やる」だけでも書ける')),
       field(track.features.actualFirst ? '実際（食べた・やった）' : '実際', h('div', { class: 'inline' },
         h('input', { type: 'date', value: d.actualDate ?? '', oninput: (e: Event) => { d.actualDate = (e.target as HTMLInputElement).value || null; } }),
-        timeInput(d.actualStart, (v) => { d.actualStart = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }), '〜', timeInput(d.actualEnd, (v) => { d.actualEnd = v; }))),
+        timeInput(d.actualStart, (v) => { d.actualStart = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }), '〜', timeInput(d.actualEnd, (v) => { d.actualEnd = v; draw(); }),
+        durInput(() => d.actualDur, (v) => { d.actualDur = v; if (v != null && !d.actualDate) d.actualDate = d.date; draw(); }, spanDur(d.actualStart, d.actualEnd)))),
     ];
     if (track.features.done) {
       out.push(field('状態', h('div', { class: 'btns' },
@@ -65,7 +74,7 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
         tpls.map((t) => h('option', { value: t.id, selected: t.id === d.templateId }, t.name))),
       h('button', { onclick: () => { const n = prompt('いつものの名前', d.title); if (!n) return; repo.templateFromEntry(d, n); alert('⭐ に登録しました'); draw(); } }, '⭐ これをいつものに'))));
     out.push(field('🔁 繰り返し',
-      h('button', { onclick: () => openRuleForm(ctx, track, repo.blankRule(track.id, { title: d.title, note: d.note, slotKey: d.slotKey, planStart: d.planStart, planEnd: d.planEnd, payload: structuredClone(d.payload), calendar: d.calendar, priority: d.priority, startDate: d.date })) }, '🔁 これを繰り返しにする'),
+      h('button', { onclick: () => openRuleForm(ctx, track, repo.blankRule(track.id, { title: d.title, note: d.note, slotKey: d.slotKey, planStart: d.planStart, planEnd: d.planEnd, planDur: d.planDur ?? null, payload: structuredClone(d.payload), calendar: d.calendar, priority: d.priority, startDate: d.date })) }, '🔁 これを繰り返しにする'),
       d.ruleId ? hint(`この記録は 🔁 から入りました（${d.ruleDate}）`) : null));
     out.push(h('div', { class: 'actions' },
       h('button', { class: 'primary', onclick: () => { if (!d.title.trim()) { alert('「なに」を入れてください'); return; } repo.upsertEntry(d); m.close(); ctx.render(); } }, '保存'),
@@ -109,7 +118,8 @@ function openTemplateForm(ctx: Ctx, track: Track, tpl: Template | null, onSaved:
       field('呼び名', h('input', { value: d.name, placeholder: 'いつもの朝ごはん', oninput: (e: Event) => { d.name = (e.target as HTMLInputElement).value; } })),
       field('なに（記録に入る文）', h('input', { value: d.title, oninput: (e: Event) => { d.title = (e.target as HTMLInputElement).value; } })),
       field('既定の枡', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, 'どの枡でも'), hint('縛りではない＝呼んだ先の枡が勝つ（朝食のメニューを昼にも使える）')),
-      field('既定の時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }))),
+      field('既定の時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }),
+        durInput(() => d.planDur, (v) => { d.planDur = v; }, null))),
     ];
     if (track.kind === 'meal') out.push(field('出どころ', originButtons(() => d.payload.origin, (v) => { d.payload = { ...d.payload, origin: v }; draw(); })));
     out.push(field('メモ', h('textarea', { rows: 2, value: d.note ?? '', oninput: (e: Event) => { d.note = (e.target as HTMLTextAreaElement).value || null; } })));
@@ -172,7 +182,8 @@ export function openRuleForm(ctx: Ctx, track: Track, rule: Rule, onSaved?: () =>
         h('input', { type: 'date', value: d.startDate, oninput: (e: Event) => { d.startDate = (e.target as HTMLInputElement).value || d.startDate; } }), '〜',
         h('input', { type: 'date', value: d.endDate ?? '', oninput: (e: Event) => { d.endDate = (e.target as HTMLInputElement).value || null; } }), hint('終わりが空＝ずっと'))),
       field('枡（時間帯）', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, '時刻から自動')),
-      field('時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }))),
+      field('時刻', h('div', { class: 'inline' }, timeInput(d.planStart, (v) => { d.planStart = v; }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; }),
+        durInput(() => d.planDur, (v) => { d.planDur = v; }, null))),
       field('入り方', h('div', { class: 'btns' },
         h('button', { class: !d.auto ? 'on' : '', onclick: () => { d.auto = false; draw(); } }, '確認してから（薄く出す）'),
         h('button', { class: d.auto ? 'on' : '', onclick: () => { d.auto = true; draw(); } }, '自動で入る'))),

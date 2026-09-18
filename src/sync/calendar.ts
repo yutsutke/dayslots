@@ -6,7 +6,7 @@
  *  ⚠ ここは口（ポート）と規則。Google に実際に話す部分（Edge Function `koma-gcal`）は Phase 4。
  */
 import type { Entry, Track, YMD, Minute, CalendarMapRow } from '../domain/types';
-import { bucketOf } from '../domain/slots';
+import { bucketOf, planDurationOf, actualDurationOf } from '../domain/slots';
 import type { Repo } from '../app/repo';
 
 /** allDay＝終日（時刻が無い記録＝「時間帯なし」など）。時刻ありなら startMin/endMin が入る */
@@ -31,9 +31,9 @@ export function eventFor(track: Track, e: Entry): CalendarEvent | null {
     const desc = [slotOf ? `${slotOf.icon} ${slotOf.label}` : '', e.doneAt ? '✅ 済' : '', e.note ?? ''].filter(Boolean).join('\n');
     return { entryId: e.id, title: `${track.icon} ${e.title}`, date, allDay: true, startMin: null, endMin: null, description: desc };
   }
-  // 終わり＝実際の終わり／予定の終わり。実際で出すのに実際の終わりが無ければ、予定の長さを写す（無ければ30分）
-  const planLen = e.planStart != null && e.planEnd != null ? e.planEnd - e.planStart : 30;
-  const rawEnd = useActual ? (e.actualEnd ?? start + planLen) : (e.planEnd ?? start + 30);
+  // 終わり＝始まり＋長さ（書いた「何分」が勝つ・無ければ 始まり〜終わり・無ければ予定の長さ・無ければ30分）
+  const planLen = planDurationOf(e) ?? 30;
+  const rawEnd = useActual ? (e.actualDur != null ? start + e.actualDur : (e.actualEnd ?? start + (actualDurationOf(e) ?? planLen))) : (e.planDur != null ? start + e.planDur : (e.planEnd ?? start + planLen));
   const end = Math.min(1440, Math.max(rawEnd, start + 5));
   const desc = [slotOf ? `${slotOf.icon} ${slotOf.label}` : '', e.doneAt ? '✅ 済' : '', e.note ?? ''].filter(Boolean).join('\n');
   return { entryId: e.id, title: `${track.icon} ${e.title}`, date, allDay: false, startMin: start, endMin: end, description: desc };

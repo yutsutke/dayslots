@@ -54,9 +54,11 @@ export interface Entry {
   slotKey: string | null;      // 人が選んだ枡（null＝時刻から決める。⚠ 人の選択は自動で上書きしない）
   planStart: Minute | null;    // 予定の時刻
   planEnd: Minute | null;
+  planDur?: Minute | null;     // 予定の長さ（分）＝始まり・終わりと無関係に「30分やる」と書ける。省略＝null
   actualDate: YMD | null;      // 実際にやった日（予定の日と別物）
   actualStart: Minute | null;  // 実際の時刻
   actualEnd: Minute | null;
+  actualDur?: Minute | null;   // 実際の長さ（分）＝「20分やった」だけの入力。始まり〜終わりがあればそちらが優先ではなく、書いた長さが勝つ
   doneAt: ISO | null;          // ✅ 済んだ時刻（消さずに残す）
   skippedAt: ISO | null;       // 🚫 やらないと決めた時刻（✅ と両立しない）
   insteadOfId: string | null;  // 🔀 どの記録の「代わりに」やったか（印は代わりの側の1列だけ）
@@ -86,6 +88,7 @@ export interface Template {
   photos: Photo[];             // 記録と**共有**（実体を増やさない）
   planStart: Minute | null;
   planEnd: Minute | null;
+  planDur?: Minute | null;
   calendar: boolean;
   sortOrder: number;
   createdAt: ISO;
@@ -117,6 +120,7 @@ export interface Rule {
   slotKey: string | null;
   planStart: Minute | null;
   planEnd: Minute | null;
+  planDur?: Minute | null;
   priority: Priority;
   tag: string | null;
   auto: boolean;               // true＝その日が来たら自動で記録／false＝薄く出して、押した日だけ記録

@@ -36,11 +36,21 @@ export function slotRange(t: Track, key: string): string {
   const a = s.startMin, b = slotEnd(t, key) as number;
   return `${a ? fmtMin(a) : '0:00'}〜${b < 1440 ? fmtMin(b) : '24:00'}`;
 }
-/** 何分やったか＝実際の開始〜終わり（無ければ予定）。片方しか無ければ null */
-export function durationOf(e: Pick<Entry, 'planStart' | 'planEnd' | 'actualStart' | 'actualEnd'>): Minute | null {
+/** 実際の長さ＝書いた「何分」が勝つ。無ければ 始まり〜終わり から。どちらも無ければ null */
+export function actualDurationOf(e: Pick<Entry, 'actualStart' | 'actualEnd' | 'actualDur'>): Minute | null {
+  if (e.actualDur != null) return e.actualDur;
   if (e.actualStart != null && e.actualEnd != null) return e.actualEnd - e.actualStart;
+  return null;
+}
+/** 予定の長さ＝同じ決め方 */
+export function planDurationOf(e: Pick<Entry, 'planStart' | 'planEnd' | 'planDur'>): Minute | null {
+  if (e.planDur != null) return e.planDur;
   if (e.planStart != null && e.planEnd != null) return e.planEnd - e.planStart;
   return null;
+}
+/** 何分やったか（升目に出す1つの数）＝実際があれば実際、無ければ予定 */
+export function durationOf(e: Pick<Entry, 'planStart' | 'planEnd' | 'planDur' | 'actualStart' | 'actualEnd' | 'actualDur'>): Minute | null {
+  return actualDurationOf(e) ?? planDurationOf(e);
 }
 export const fmtDur = (m: Minute): string => (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 ? `${m % 60}分` : ''}` : `${m}分`);
 /** その記録の「主な時刻」＝種目が実際を主にするなら実際（無ければ予定）、そうでなければ予定（無ければ実際） */

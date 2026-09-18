@@ -84,7 +84,7 @@ export class Repo {
     const src = this.mustEntry(ofId);
     this.setSkipped(ofId, true);
     return this.addEntry(src.trackId, {
-      date: src.date, slotKey: src.slotKey, planStart: src.planStart, planEnd: src.planEnd, title,
+      date: src.date, slotKey: src.slotKey, planStart: src.planStart, planEnd: src.planEnd, planDur: src.planDur ?? null, title,
       insteadOfId: ofId, doneAt: nowIso(), actualDate: src.date, calendar: src.calendar,
     });
   }
@@ -95,7 +95,7 @@ export class Repo {
   /** 詳細（時刻・メモ・写真・名前の変更）が入っているか＝入っていれば「なし」に戻しても行を消さない */
   hasDetails(e: Entry): boolean {
     const t = this.track(e.trackId);
-    return Boolean(e.note) || e.planStart != null || e.actualStart != null || e.photos.length > 0 || e.title !== t.name;
+    return Boolean(e.note) || e.planStart != null || e.actualStart != null || e.planDur != null || e.actualDur != null || e.photos.length > 0 || e.title !== t.name;
   }
   /** なし → ✅ → 🚫 → なし。戻り＝いまの行（消したら null） */
   toggleDay(trackId: string, date: YMD): Entry | null {
@@ -126,7 +126,7 @@ export class Repo {
     const t = nowIso();
     const tpl: Template = {
       id: uid(), trackId: e.trackId, name: name ?? e.title, slotKey: e.slotKey, title: e.title, note: e.note,
-      payload: structuredClone(e.payload), photos: [...e.photos], planStart: e.planStart, planEnd: e.planEnd,
+      payload: structuredClone(e.payload), photos: [...e.photos], planStart: e.planStart, planEnd: e.planEnd, planDur: e.planDur ?? null,
       calendar: e.calendar, sortOrder: this.db.templates.length, createdAt: t, updatedAt: t,
     };
     this.db.templates.push(tpl); void this.persist(); return tpl;
@@ -146,6 +146,7 @@ export class Repo {
     into.templateId = tpl.id;
     if (slotKey !== undefined) into.slotKey = slotKey; else if (into.slotKey == null) into.slotKey = tpl.slotKey;
     if (into.planStart == null) { into.planStart = tpl.planStart; into.planEnd = tpl.planEnd; }
+    if (into.planDur == null && tpl.planDur != null) into.planDur = tpl.planDur;
     if (tpl.calendar) into.calendar = true;
     return into;
   }
@@ -186,7 +187,7 @@ export class Repo {
     const hit = this.entryOfOccurrence(o); if (hit) return hit;
     const r = this.db.rules.find((x) => x.id === o.ruleId); if (!r) throw new Error('その繰り返しはありません');
     return this.addEntry(r.trackId, {
-      date: o.date, title: o.title, note: o.note, slotKey: o.slotKey, planStart: o.planStart, planEnd: o.planEnd,
+      date: o.date, title: o.title, note: o.note, slotKey: o.slotKey, planStart: o.planStart, planEnd: o.planEnd, planDur: r.planDur ?? null,
       priority: o.priority, tag: o.tag, ruleId: o.ruleId, ruleDate: o.date, templateId: r.templateId,
       payload: structuredClone(r.payload), calendar: r.calendar,
     });
