@@ -15,7 +15,8 @@
 - ✅ v10（🎤）・v11（進行中の作法4つ＝自動終了・常時1行・長時間の確認・🚫 は連続を切らない）。調査＝docs/reports/コマ 似たアプリの調査.md（次の一手 16 項目）。
 - ✅ v12（並べ替え／保存場所＝端末・Google ドライブ・Supabase／SQLite 書き出し）。
 - [ ] ☁ Google ドライブ：本人が Client ID を作って実際に読み書きを確かめる。iOS の殻でログイン窓が開かなければ ネイティブのログイン（@codetrix-studio/capacitor-google-auth 等）に替える
-- [ ] ☁ Supabase：どのプロジェクトか決めたら `0002_koma_docs.sql` を当て、`koma-store` を deploy し Secret KOMA_SECRET を入れる
+- [x] ☁ Supabase：ライフログと同じプロジェクトに `koma_docs`・`koma-store`・Secret を置いて動いた（2026-09-18）
+- [ ] ☁ 2台で同時に書いたときの取りこぼし（丸ごと1行＝あとに保存した方が勝つ）＝行単位の同期は Phase 3
 - [ ] ☁ 写真の本体（IndexedDB）は写しに入らない＝Drive/Supabase Storage へ別に置く（Phase 2〜3）
 - ▶ 次＝**本人に聞く3つ**（SPEC.md §11：名前／取り込み／Supabase 同じか別か）→ Phase 1（iPhone で触る）。
 
