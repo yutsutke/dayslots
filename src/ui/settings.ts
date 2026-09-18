@@ -77,7 +77,7 @@ export function openSettings(ctx: Ctx): void {
       (st.storage?.kind === 'supabase') ? [
         field('関数の場所', h('input', { value: st.storage.supabaseUrl ?? '', placeholder: 'https://xxxx.supabase.co', oninput: (e: Event) => { st.storage!.supabaseUrl = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } })),
         field('合言葉', h('input', { type: 'password', value: st.storage.supabaseSecret ?? '', oninput: (e: Event) => { st.storage!.supabaseSecret = (e.target as HTMLInputElement).value; void repo.persist(); } }),
-          hint('Edge Function koma-store の Secret KOMA_SECRET と同じ文字列。表 koma_docs と関数は supabase/ にある（⚠ まだ当てていない＝どのプロジェクトに置くか決めてから）')),
+          hint('Edge Function koma-store の Secret KOMA_SECRET と同じ文字列。送るのは「何かを保存した3秒後」「開いたとき」「今 合わせる を押したとき」')),
       ] : null,
       (st.storage?.kind ?? 'local') !== 'local' ? field('送る期間', h('div', { class: 'btns' }, ([[31, '直近1か月'], [92, '3か月'], [366, '1年'], [null, 'すべて']] as [number | null, string][]).map(([d, l]) =>
         h('button', { class: (st.storage?.windowDays ?? null) === d ? 'on' : '', onclick: () => { st.storage!.windowDays = d; void repo.persist(); draw(); } }, l))),
@@ -94,7 +94,7 @@ export function openSettings(ctx: Ctx): void {
         st.storage?.kind === 'drive' ? h('button', { title: '選んだフォルダに koma.sqlite を置く', onclick: async () => { try { const u8 = await exportSqlite(repo.db); await new DriveTarget(st.storage!).putExtra('koma.sqlite', new Blob([u8.buffer as ArrayBuffer], { type: 'application/x-sqlite3' }), 'application/x-sqlite3'); alert('Google ドライブに koma.sqlite を置きました'); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '☁ SQLite を Drive へ') : null,
         h('button', { onclick: () => { const inp = h('input', { type: 'file', accept: '.json,application/json', onchange: async () => { const f = inp.files?.[0]; if (!f) return; try { repo.importJson(await f.text()); alert('読み込みました'); m.close(); ctx.render(); } catch (e) { alert(`読めませんでした: ${(e as Error).message}`); } } }); inp.click(); } }, '⬆ JSON を読み込む'),
         h('button', { class: 'danger', onclick: () => { if (confirm('記録・種目・⭐・🔁 を全部消して、見本に戻します。よいですか？')) { repo.reset(() => seedDb()); m.close(); ctx.render(); } } }, '見本に戻す')),
-      h('p', { class: 'hint' }, `記録 ${repo.db.entries.length} 件 · ⭐ ${repo.db.templates.length} · 🔁 ${repo.db.rules.length}（この端末の中だけ。Supabase への置き場は Phase 3）`));
+      h('p', { class: 'hint' }, `記録 ${repo.db.entries.length} 件 · ⭐ ${repo.db.templates.length} · 🔁 ${repo.db.rules.length}（本体はこの端末の中。外の写しは上の ☁ 保存場所）`));
   };
   draw();
 }
