@@ -38,7 +38,7 @@ src/store/              置き場：localStorage（本体）／見本データ�
 src/sync/               calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
 src/export/sqlite.ts    SQLite の書き出し（sql.js を書き出すときだけ読む）
 src/ui/                 app（骨・週/1日/月・すべて・合図の欄・進行中の1行）／forms（記録・⭐・🔁・📷🤖）／settings（⚙）／photos（縮小・IndexedDB）／voice（🎤）／dom／style.css
-test/                   Vitest 107 本（負のテストを含む）
+test/                   Vitest 108 本（負のテストを含む）
 supabase/migrations/    0001（行単位の表・未適用）／0002 koma_docs・0003 review（**本番に適用済み**）
 supabase/functions/koma-store/  外の写しの関数（index.ts ＋ delta.ts＝src/sync/delta.ts の写し。検査が一致を見る）
 capacitor.config.json, codemagic.yaml, ios/   iOS の殻（Phase 1）

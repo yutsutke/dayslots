@@ -62,6 +62,20 @@ export function slotRange(t: Track, key: string, date: YMD = todayYMD()): string
   return `${sunny ? '≈' : ''}${a ? fmtMin(a) : '0:00'}〜${b < 1440 ? fmtMin(b) : '24:00'}`;
 }
 
+/** 升目に並べる順＝1日の始まり（sw＝その日の切り替わりの分。0:00 始まりは null）の枡から1周する。
+ *  ・0:00 始まり＝⚙ で決めた並びそのまま
+ *  ・日の入り始まり＝ 夜 → 深夜 → 朝 → 昼 → 午後／日の出始まり＝ 朝 → … → 深夜
+ *  ・時刻で決まらない枡（時間帯なし・間食）は、⚙ で決めた位置のまま動かさない（先頭の「時間帯なし」は先頭、最後の「間食」は最後） */
+export function displaySlots(t: Track, date: YMD = todayYMD(), sw: Minute | null = null): SlotDef[] {
+  if (sw == null) return t.slots;
+  const ts = timedSlots(t, date); if (ts.length < 2) return t.slots;
+  const key = slotOfMinute(t, sw, date);
+  let i = ts.findIndex((s) => s.key === key);
+  if (i < 0) i = Math.max(0, ts.findIndex((s) => (startOf(s, date) as number) >= sw)); // 始まりが隙間（受け皿）に当たるとき＝その次の枡から
+  const rot = [...ts.slice(i), ...ts.slice(0, i)]; let k = 0;
+  return t.slots.map((s) => (s.startMin == null ? s : rot[k++]));
+}
+
 /** 実際の長さ＝書いた「何分」が勝つ。無ければ 始まり〜終わり から。どちらも無ければ null */
 export function actualDurationOf(e: Pick<Entry, 'actualStart' | 'actualEnd' | 'actualDur'>): Minute | null {
   if (e.actualDur != null) return e.actualDur;

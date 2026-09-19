@@ -4,7 +4,7 @@ import { MemoryStore } from '../src/store/store';
 import { seedDb } from '../src/store/seed';
 import { sunMinute, sunTimes } from '../src/domain/sun';
 import { PRESETS } from '../src/domain/defaults';
-import { slotOfMinute, slotRange, setSunPlace, validateSlots, wraps } from '../src/domain/slots';
+import { slotOfMinute, slotRange, setSunPlace, validateSlots, wraps, displaySlots } from '../src/domain/slots';
 import type { Track } from '../src/domain/types';
 
 const TODAY = '2026-09-17';
@@ -88,6 +88,16 @@ describe('🌙 夜を等分する枡（0:00 をまたぐ）', () => {
     expect(slotOfMinute(t, 23 * 60 + 50, '2026-09-20')).toBe('deep');
     expect(slotRange(t, 'deep', '2026-09-20')).toMatch(/^≈23:\d\d〜翌04:5\d$/);
     expect(validateSlots(t.slots, 'none')).toEqual([]);
+    setSunPlace(null);
+  });
+  it('升目の並び＝1日の始まりの枡から1周。時刻で決まらない枡は ⚙ の位置のまま', () => {
+    setSunPlace(TOKYO); const t = mk();
+    const keys = (sw: number | null) => displaySlots(t, '2026-09-20', sw).map((s) => s.key);
+    expect(keys(null)).toEqual(['none', 'dawn', 'eve', 'deep']);                                   // 0:00 始まり＝⚙ の並びそのまま
+    expect(keys(sunMinute({ base: 'sunset', offsetMin: 0 }, '2026-09-20', TOKYO))).toEqual(['none', 'eve', 'deep', 'dawn']);   // 日の入り始まり＝夜から
+    expect(keys(sunMinute({ base: 'sunrise', offsetMin: 0 }, '2026-09-20', TOKYO))).toEqual(['none', 'dawn', 'eve', 'deep']);  // 日の出始まり＝朝から
+    const meal: Track = { ...structuredClone(PRESETS.meal), id: 'm', sortOrder: 0, archived: false };
+    expect(displaySlots(meal, '2026-09-20', 17 * 60 + 45).map((s) => s.key)).toEqual(['dinner', 'breakfast', 'lunch', 'snack']); // 間食は最後のまま
     setSunPlace(null);
   });
   it('☀ でない種目（食事）は今までどおり＝未明は受け皿の間食（負のテスト）', () => {

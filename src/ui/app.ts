@@ -15,11 +15,13 @@ import { Syncer } from '../sync/target';
 import { buildReview } from '../app/review';
 import type { Entry, Track, YMD, ShowFlags, Timer } from '../domain/types';
 import { daysBetween } from '../domain/dates';
-import { dayStartLabel } from '../domain/viewday';
-import { getSunPlace } from '../domain/slots';
+import { dayStartLabel, switchMinute } from '../domain/viewday';
+import { getSunPlace, displaySlots } from '../domain/slots';
+/** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
+const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v19';
+export const BUILD = 'v20';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -321,13 +323,14 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
   const today = repo.viewToday();
   const es = repo.entriesFor(track.id, from, to);
   const gs = repo.ghostsFor(track.id, from, to);
+  const cols = colsOf(track, today >= from && today <= to ? today : from);
   return h('div', { class: 'gridWrap' }, h('table', { class: 'grid' },
     h('thead', null, h('tr', null, h('th', { class: 'dcol' }),
-      track.slots.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
+      cols.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
         h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key, today >= from && today <= to ? today : from)))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
       h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null),
-      track.slots.map((s) => h('td', { class: 'cell' },
+      cols.map((s) => h('td', { class: 'cell' },
         es.filter((e) => repo.viewDate(e) === d && bucketOf(track, e) === s.key).map((e) => chip(track, e)),
         gs.filter((o) => o.date === d && bucketOfOccurrence(track, o) === s.key).map((o) => ghost(track, o)),
         h('button', { class: 'add', title: 'ここに足す', onclick: () => openEntryForm(ctx(), track, null, { date: d, slotKey: s.key }) }, '＋'))))))));
@@ -522,7 +525,7 @@ function dayList(track: Track, d: YMD): HTMLElement {
         h('button', { onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '… 詳細')),
       es.slice(1).map((x) => row(track, x)), gs.map((o) => ghost(track, o))));
   }
-  return h('div', { class: 'day' }, track.slots.map((s) => {
+  return h('div', { class: 'day' }, colsOf(track, d).map((s) => {
     const list = es.filter((e) => bucketOf(track, e) === s.key), gl = gs.filter((o) => bucketOfOccurrence(track, o) === s.key);
     return h('section', null,
       h('h3', null, `${s.icon} ${s.label} `, h('small', null, s.startMin == null ? '' : slotRange(track, s.key, d))),
