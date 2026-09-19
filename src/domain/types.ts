@@ -153,6 +153,7 @@ export interface Settings {
   notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
   sunPlace?: { lat: number; lon: number; name?: string }; // ☀ 日の出・日の入りを計算する場所。省略＝東京
   listBase?: YMD | null;       // 📋 リストの基準日（ここから何日、を出す）。省略/null＝今日
+  dayStart?: { base: 'midnight' } | { base: 'sunrise' | 'sunset'; offsetMin: number }; // 1日の始まり。省略＝0:00。記録は書き換えず、どの日に見せるかだけを読むときに決める
   storage?: { kind: 'local' | 'drive' | 'supabase'; windowDays?: number | null; lastPushedAt?: ISO; remoteSavedAt?: ISO; driveClientId?: string; driveFolder?: string; supabaseUrl?: string; supabaseSecret?: string; lastSync?: ISO; lastError?: string }; // 保存場所（外の写し）。省略＝端末のみ
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）

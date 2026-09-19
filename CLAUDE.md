@@ -30,7 +30,7 @@ SPEC.md                 全体像（正典）。設計判断はここに追記
 TODO.md / CHANGELOG.md  現在地／やったことの蓄積（セッション終了時に必ず更新）
 docs/reports/           似たアプリの調査（次の一手 16 項目）。docs/research_notes/ はその元の調査ノート
 index.html, src/main.ts 入口
-src/domain/             言葉（types）・暦（dates）・枡の決まり（slots＝長さ durationOf もここ）・🔁 の展開（recur）・種目の型（defaults）・合図を解く（signal）・☀ 日の出/日の入り（sun）
+src/domain/             言葉（types）・暦（dates）・枡の決まり（slots＝長さ durationOf もここ）・🔁 の展開（recur）・種目の型（defaults）・合図を解く（signal）・☀ 日の出/日の入り（sun）・1日の始まり＝どの日に見せるか（viewday）
 src/app/repo.ts         台帳＝画面が呼ぶ操作（✅🚫🔀・⭐・🔁・種目・一日一回・合図 applySignal・進行中・並べ替え）
 src/app/review.ts       📝 振り返りの要約（AI が読む直近7日の読み物）
 src/ai/byok.ts          🤖 本人の鍵で AI を呼ぶ（レシート・食事の読み取り。返事は検査してから使う）
@@ -38,7 +38,7 @@ src/store/              置き場：localStorage（本体）／見本データ�
 src/sync/               calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
 src/export/sqlite.ts    SQLite の書き出し（sql.js を書き出すときだけ読む）
 src/ui/                 app（骨・週/1日/月・すべて・合図の欄・進行中の1行）／forms（記録・⭐・🔁・📷🤖）／settings（⚙）／photos（縮小・IndexedDB）／voice（🎤）／dom／style.css
-test/                   Vitest 100 本（負のテストを含む）
+test/                   Vitest 107 本（負のテストを含む）
 supabase/migrations/    0001（行単位の表・未適用）／0002 koma_docs・0003 review（**本番に適用済み**）
 supabase/functions/koma-store/  外の写しの関数（index.ts ＋ delta.ts＝src/sync/delta.ts の写し。検査が一致を見る）
 capacitor.config.json, codemagic.yaml, ios/   iOS の殻（Phase 1）

@@ -51,6 +51,7 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
       field('なに', h('input', { value: d.title, placeholder: track.kind === 'meal' ? '何を食べたか' : 'やること', autofocus: isNew, oninput: (e: Event) => { d.title = (e.target as HTMLInputElement).value; } })),
       field('枡（時間帯）', slotButtons(track, () => d.slotKey, (k) => { d.slotKey = k; draw(); }, '時刻から自動'),
         hint(`→ 置き場: ${landing ? landing.icon + ' ' + landing.label : '?'}${d.slotKey == null ? '（時刻から。時刻が無ければ受け皿）' : '（選んだ枡が勝つ）'}`)),
+      repo.viewDate(d) !== d.date ? field('☀ 見せる日', hint(`1日の始まりの設定（⚙）により、この記録は ${repo.viewDate(d)} の日に出ます（暦の日付 ${d.date} は書き換えません）`)) : h('span'),
       field(track.features.actualFirst ? '予定（決めていれば）' : '予定', h('div', { class: 'inline' },
         h('input', { type: 'date', value: d.date, oninput: (e: Event) => { d.date = (e.target as HTMLInputElement).value || d.date; } }),
         timeInput(d.planStart, (v) => { d.planStart = v; draw(); }), nowBtn((m) => { d.planStart = m; draw(); }), '〜', timeInput(d.planEnd, (v) => { d.planEnd = v; draw(); }), nowBtn((m) => { d.planEnd = m; draw(); }),

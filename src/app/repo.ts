@@ -12,7 +12,8 @@ import type { Store } from '../store/store';
 import { occurrences, type Occurrence } from '../domain/recur';
 import { todayYMD, addDays } from '../domain/dates';
 import { PRESETS } from '../domain/defaults';
-import { durationOf } from '../domain/slots';
+import { durationOf, primaryMinute, getSunPlace } from '../domain/slots';
+import { viewDateOf, viewToday, MIDNIGHT, type DayStart } from '../domain/viewday';
 import { parseSignal, resolve, type Signal } from '../domain/signal';
 import { nowMinute } from '../domain/dates';
 
@@ -67,8 +68,21 @@ export class Repo {
   // ── 記録 ──────────────────────────────────────────────
   entry(id: string): Entry | undefined { return this.db.entries.find((e) => e.id === id); }
   private mustEntry(id: string): Entry { const e = this.entry(id); if (!e) throw new Error(`記録がありません: ${id}`); return e; }
+  /** 1日の始まり（⚙）。0:00／日の出／日の入り */
+  get dayStart(): DayStart { return this.db.settings.dayStart ?? MIDNIGHT; }
+  /** その記録を**どの日に見せるか**＝暦の日付と主な時刻から、1日の始まりの設定で決める（記録は書き換えない）。0:00 始まりなら date そのまま */
+  viewDate(e: Entry): YMD {
+    const ds = this.dayStart; if (ds.base === 'midnight') return e.date;
+    const t = this.db.tracks.find((x) => x.id === e.trackId); if (!t) return e.date;
+    return viewDateOf(e.date, primaryMinute(t, e), ds, getSunPlace());
+  }
+  /** いまは「どの日」か（日の出始まりで未明なら、まだ前の日） */
+  viewToday(): YMD { const ds = this.dayStart; return ds.base === 'midnight' ? this.today() : viewToday(ds, getSunPlace()); }
+  /** 期間の記録。⚠ 期間は「見せる日」で切る＝1日の始まりが日の出なら、未明の記録は前の日のぶんとして返る */
   entriesFor(trackId: string, from: YMD, to: YMD): Entry[] {
-    return this.db.entries.filter((e) => e.trackId === trackId && e.date >= from && e.date <= to).sort(byOrder);
+    if (this.dayStart.base === 'midnight') return this.db.entries.filter((e) => e.trackId === trackId && e.date >= from && e.date <= to).sort(byOrder);
+    const lo = addDays(from, -1), hi = addDays(to, 1); // 見せる日は暦の日から高々1日しかずれない
+    return this.db.entries.filter((e) => { if (e.trackId !== trackId || e.date < lo || e.date > hi) return false; const v = this.viewDate(e); return v >= from && v <= to; }).sort(byOrder);
   }
   blankEntry(trackId: string, init: Partial<Entry> = {}): Entry {
     const t = nowIso();

@@ -15,9 +15,11 @@ import { Syncer } from '../sync/target';
 import { buildReview } from '../app/review';
 import type { Entry, Track, YMD, ShowFlags, Timer } from '../domain/types';
 import { daysBetween } from '../domain/dates';
+import { dayStartLabel } from '../domain/viewday';
+import { getSunPlace } from '../domain/slots';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v18';
+export const BUILD = 'v19';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -32,6 +34,7 @@ export async function boot(el: HTMLElement): Promise<void> {
   root = el;
   repo = await Repo.open(new LocalStore(), () => seedDb());
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
+  setSunPlace(repo.db.settings.sunPlace); state.anchor = repo.viewToday(); // 1日の始まりが日の出なら、未明はまだ「前の日」
   // ☁ 保存場所（外の写し）＝保存のたびに少し待って押し出す。開いたときは外が新しければ取り込む
   syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); },
     async (info) => {
@@ -80,7 +83,7 @@ function range(): [YMD, YMD] {
   if (state.view === 'list') {
     // リスト＝直近90日〜いちばん先の記録まで（「もっと前も」でいちばん古い記録から）。
     // 🚨 端を 9999 年のような遠い日にしない＝帯が 🔁 の回をその日まで1日ずつ数えに行って画面が固まる（2026-09-20 に実際に踏んだ）
-    const today = todayYMD(); let lo = addDays(today, -90), hi = today;
+    const today = repo.viewToday(); let lo = addDays(today, -90), hi = today;
     for (const e of repo.db.entries) { if (e.date > hi) hi = e.date; if (state.listAll && e.date < lo) lo = e.date; }
     return [lo, hi];
   }
@@ -130,7 +133,7 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
     h('button', { onclick: () => move(-1) }, '◀'),
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
-    h('button', { onclick: () => { state.anchor = todayYMD(); render(); } }, '今日'),
+    h('button', { onclick: () => { state.anchor = repo.viewToday(); render(); } }, '今日'),
     viewToggles(),
     h('span', { class: 'sp' }),
     track ? [
@@ -250,7 +253,7 @@ function allReviewBar(from: YMD, to: YMD): HTMLElement {
   const parts = repo.tracks.map((t) => {
     const s = repo.summary(t.id, from, to);
     const ds = repo.durationStats(t.id, from, to);
-    const body = (isDaily(t) ? `✅${s.done} 🔥${repo.streak(t.id, todayYMD())}日` : t.features.done ? `✅${s.done}/${s.total}${s.skipped ? ` 🚫${s.skipped}` : ''}` : `${s.total}件`) + (ds.total ? ` ⏱${fmtDur(ds.total)}` : '');
+    const body = (isDaily(t) ? `✅${s.done} 🔥${repo.streak(t.id, repo.viewToday())}日` : t.features.done ? `✅${s.done}/${s.total}${s.skipped ? ` 🚫${s.skipped}` : ''}` : `${s.total}件`) + (ds.total ? ` ⏱${fmtDur(ds.total)}` : '');
     return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
   });
   const pend = pending(repo).length;
@@ -262,7 +265,7 @@ function allReviewBar(from: YMD, to: YMD): HTMLElement {
 // ── ⊞ すべて（週＝縦7日 × 横＝種目） ─────────────────────────
 function allWeek(from: YMD, to: YMD): HTMLElement {
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
-  const today = todayYMD();
+  const today = repo.viewToday();
   const go = (t: Track, d: YMD) => { state.trackId = t.id; state.view = 'day'; state.anchor = d; render(); };
   const cell = (t: Track, d: YMD): HTMLElement => {
     if (isDaily(t)) {
@@ -295,7 +298,7 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
   const parts = track.features.done
     ? [`✅ ${s.done}`, `🚫 ${s.skipped}`, ...(isDaily(track) ? [] : [`まだ ${s.open}`]), `🔁 ${s.ghosts}`]
     : [`${track.icon} ${s.total} 件`, `🔁 ${s.ghosts}`];
-  if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, todayYMD())} 日`);
+  if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, repo.viewToday())} 日`);
   const ds = repo.durationStats(track.id, from, to);
   if (ds.total > 0) parts.push(`⏱ 合計 ${fmtDur(ds.total)} · 平均 ${fmtDur(ds.avg)}/回（${ds.count}回）`);
   if (track.kind === 'receipt') { const yen = repo.entriesFor(track.id, from, to).reduce((a, e) => a + (Number((e.payload.receipt as { total?: number } | undefined)?.total) || 0), 0); if (yen) parts.push(`💴 ¥${yen.toLocaleString()}`); }
@@ -315,7 +318,7 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
 // ── 週（枡の升目） ─────────────────────────────────────────
 function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
   const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
-  const today = todayYMD();
+  const today = repo.viewToday();
   const es = repo.entriesFor(track.id, from, to);
   const gs = repo.ghostsFor(track.id, from, to);
   return h('div', { class: 'gridWrap' }, h('table', { class: 'grid' },
@@ -323,9 +326,9 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
       track.slots.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
         h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key, today >= from && today <= to ? today : from)))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
-      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)])),
+      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null),
       track.slots.map((s) => h('td', { class: 'cell' },
-        es.filter((e) => e.date === d && bucketOf(track, e) === s.key).map((e) => chip(track, e)),
+        es.filter((e) => repo.viewDate(e) === d && bucketOf(track, e) === s.key).map((e) => chip(track, e)),
         gs.filter((o) => o.date === d && bucketOfOccurrence(track, o) === s.key).map((o) => ghost(track, o)),
         h('button', { class: 'add', title: 'ここに足す', onclick: () => openEntryForm(ctx(), track, null, { date: d, slotKey: s.key }) }, '＋'))))))));
 }
@@ -339,7 +342,7 @@ function dayDetail(e: Entry | undefined): string {
   return [f.time && start != null ? `${fmtMin(start)}〜` : '', f.duration && dur ? `⏱${fmtDur(dur)}` : '', f.note && e.note ? `💬 ${e.note}` : ''].filter(Boolean).join(' · ');
 }
 function dailyWeek(track: Track, from: YMD): HTMLElement {
-  const today = todayYMD();
+  const today = repo.viewToday();
   return h('div', { class: 'day daily' },
     h('p', { class: 'hint' }, `印を押すと なし → ✅ → 🚫（今日は無し・連続は切れない） → なし。時刻やメモは「…」から。`),
     Array.from({ length: 7 }, (_, i) => addDays(from, i)).map((d) => {
@@ -354,14 +357,14 @@ function dailyWeek(track: Track, from: YMD): HTMLElement {
 
 // ── 月 ───────────────────────────────────────────────────
 function monthGrid(track: Track, from: YMD): HTMLElement {
-  const today = todayYMD(), ym = state.anchor.slice(0, 7);
+  const today = repo.viewToday(), ym = state.anchor.slice(0, 7);
   const days = Array.from({ length: 42 }, (_, i) => addDays(from, i));
   const es = repo.entriesFor(track.id, from, days[41]);
   const gs = repo.ghostsFor(track.id, from, days[41]);
   const ws = repo.db.settings.weekStart;
   const cell = (d: YMD) => {
     const inMonth = d.startsWith(ym);
-    const list = es.filter((e) => e.date === d), gl = gs.filter((o) => o.date === d);
+    const list = es.filter((e) => repo.viewDate(e) === d), gl = gs.filter((o) => o.date === d);
     const goDay = () => { state.view = 'day'; state.anchor = d; render(); };
     if (isDaily(track)) {
       const e = repo.dayEntry(track.id, d);
@@ -403,7 +406,8 @@ function allDay(d: YMD): HTMLElement {
     }
     if (un.length) bundles.push(h('div', { class: 'bundle' }, h('b', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`), h('div', { class: 'chips' }, un)));
   }
-  timed.sort((a, b) => a.min - b.min);
+  const ord = (it: Item) => (it.entry ? daysBetween(d, it.entry.date) * 1440 : 0) + it.min; // 暦の日が1日ずれた記録（未明など）は、その分だけ後ろ／前へ
+  timed.sort((a, b) => ord(a) - ord(b));
   const line = (it: Item): HTMLElement => {
     const t = it.track;
     if (it.occ) { const o = it.occ; return h('div', { class: 'row tl ghostTxt', onclick: () => { const e = repo.materialize(o); render(); openEntryForm(ctx(), t, e); } },
@@ -421,7 +425,7 @@ function allDay(d: YMD): HTMLElement {
 
 // ── ⊞ すべて（月＝升に種目ごとの印） ──────────────────────────
 function allMonth(from: YMD): HTMLElement {
-  const today = todayYMD(), ym = state.anchor.slice(0, 7);
+  const today = repo.viewToday(), ym = state.anchor.slice(0, 7);
   const days = Array.from({ length: 42 }, (_, i) => addDays(from, i));
   const ws = repo.db.settings.weekStart;
   const cell = (d: YMD) => {
@@ -446,14 +450,15 @@ function listView(track: Track | null, from: YMD, to: YMD): HTMLElement {
   const tracks = track ? [track] : repo.tracks; const byId = new Map(tracks.map((t) => [t.id, t]));
   const usesDone = tracks.some((t) => t.features.done);
   const f = usesDone ? state.listFilter : 'all';
-  let es = repo.db.entries.filter((e) => byId.has(e.trackId) && e.date >= from && e.date <= to);
+  const vd = (e: Entry) => repo.viewDate(e);
+  let es = repo.db.entries.filter((e) => byId.has(e.trackId) && vd(e) >= from && vd(e) <= to);
   const total = es.length;
   es = es.filter((e) => { const t = byId.get(e.trackId) as Track; if (f === 'all' || !t.features.done) return f === 'all' || f === 'done'; return f === 'open' ? !e.doneAt && !e.skippedAt : f === 'done' ? Boolean(e.doneAt) : Boolean(e.skippedAt); });
   // まだ＝古い順（先に片づける順）／それ以外＝新しい順
-  const key = (e: Entry) => e.date + String(primaryMinute(byId.get(e.trackId) as Track, e) ?? 9999).padStart(4, '0');
+  const key = (e: Entry) => vd(e) + String(10000 + daysBetween(vd(e), e.date) * 1440 + (primaryMinute(byId.get(e.trackId) as Track, e) ?? 5000)).padStart(5, '0');
   es.sort((a, b) => (f === 'open' ? (key(a) < key(b) ? -1 : 1) : key(a) < key(b) ? 1 : -1));
-  const today = todayYMD(); const groups = new Map<YMD, Entry[]>();
-  for (const e of es) groups.set(e.date, [...(groups.get(e.date) ?? []), e]);
+  const today = repo.viewToday(); const groups = new Map<YMD, Entry[]>();
+  for (const e of es) groups.set(vd(e), [...(groups.get(vd(e)) ?? []), e]);
   const base = repo.db.settings.listBase ?? today;
   const since = (d: YMD) => { const n = daysBetween(base, d); return n === 0 ? '基準日' : n > 0 ? `基準日から ${n}日` : `基準日の ${-n}日前`; };
   const fb = (v: ListFilter, l: string) => h('button', { class: f === v ? 'on' : '', onclick: () => { state.listFilter = v; render(); } }, l);
