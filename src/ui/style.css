@@ -69,6 +69,12 @@ table.grid tr.today th.dcol b { color: #f0883e; }
 .row .ttl { flex: 1; }
 .row .sub { display: block; }
 
+/* 📋 リスト */
+.list > .inline { margin-bottom: 8px; }
+.list section.today { border-color: var(--accent); }
+.list section.late h3 { color: var(--skip); }
+.list section h3 small { font-weight: 400; }
+
 /* 一日一回＝1日1行・大きな印 */
 .box.big { font-size: 22px; line-height: 1; padding: 2px 4px; }
 .daily .row { align-items: center; }

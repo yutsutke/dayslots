@@ -60,6 +60,12 @@ describe('🔁 繰り返しの展開（ライフログの規則を写した）',
     expect(o.map((x) => x.date)).toEqual(['2026-09-14', '2026-09-16']);
     expect(o[1].planStart).toBe(600); expect(o[1].title).toBe('別の名'); expect(o[0].planStart).toBe(540);
   });
+  it('遠すぎる端（9999年）を渡されても固まらない＝窓は3年で切る（負のテスト）', () => {
+    const t0 = Date.now();
+    const n = occurrences([rule({})], '2026-09-01', '9999-12-31').length;
+    expect(n).toBeGreaterThan(1000); expect(n).toBeLessThan(1200);
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
   it('止めた規則（active=false）は出ない', () => {
     expect(dates([rule({ active: false })], '2026-09-13', '2026-09-19')).toEqual([]);
   });

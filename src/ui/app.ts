@@ -5,7 +5,7 @@ import { Repo } from '../app/repo';
 import { LocalStore } from '../store/store';
 import { seedDb } from '../store/seed';
 import { todayYMD, addDays, addMonths, weekStartOf, DOW_JA, dowOf } from '../domain/dates';
-import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, planDurationOf, actualDurationOf, primaryMinute, slotRange } from '../domain/slots';
+import { bucketOf, bucketOfOccurrence, fmtMin, fmtDur, durationOf, planDurationOf, actualDurationOf, primaryMinute, slotRange, setSunPlace } from '../domain/slots';
 import { openEntryForm, openTemplates, openRules } from './forms';
 import { h as hh, modal } from './dom';
 import { speechAvailable, listen } from './voice';
@@ -16,15 +16,16 @@ import { buildReview } from '../app/review';
 import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v16';
+export const BUILD = 'v17';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
-type View = 'week' | 'day' | 'month';
+type View = 'week' | 'day' | 'month' | 'list';
+type ListFilter = 'open' | 'done' | 'skip' | 'all';
 let repo: Repo;
 let root: HTMLElement;
-const state: { trackId: string; view: View; anchor: YMD } = { trackId: '', view: 'week', anchor: todayYMD() };
+const state: { trackId: string; view: View; anchor: YMD; listFilter: ListFilter; listAll: boolean } = { trackId: '', view: 'week', anchor: todayYMD(), listFilter: 'open', listAll: false };
 
 export async function boot(el: HTMLElement): Promise<void> {
   root = el;
@@ -75,30 +76,39 @@ function extras(e: Entry, small = false): (HTMLElement | null)[] {
 /** 見ている範囲。月＝月初を含む週の頭から6週（42日）＝升目と同じ */
 function range(): [YMD, YMD] {
   if (state.view === 'day') return [state.anchor, state.anchor];
+  if (state.view === 'list') {
+    // リスト＝直近90日〜いちばん先の記録まで（「もっと前も」でいちばん古い記録から）。
+    // 🚨 端を 9999 年のような遠い日にしない＝帯が 🔁 の回をその日まで1日ずつ数えに行って画面が固まる（2026-09-20 に実際に踏んだ）
+    const today = todayYMD(); let lo = addDays(today, -90), hi = today;
+    for (const e of repo.db.entries) { if (e.date > hi) hi = e.date; if (state.listAll && e.date < lo) lo = e.date; }
+    return [lo, hi];
+  }
   if (state.view === 'month') { const a = weekStartOf(state.anchor.slice(0, 7) + '-01', repo.db.settings.weekStart); return [a, addDays(a, 41)]; }
   const a = weekStartOf(state.anchor, repo.db.settings.weekStart);
   return [a, addDays(a, 6)];
 }
 
 export function render(): void {
+  setSunPlace(repo.db.settings.sunPlace); // ☀ の枡の境目を計算する場所
   if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   if (state.trackId === ALL) {
     const [from, to] = range();
-    repo.ensureAuto(from, to);
-    const body = state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
+    if (state.view !== 'list') repo.ensureAuto(from, to);
+    const body = state.view === 'list' ? listView(null, from, to) : state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
     root.replaceChildren(header(null, from, to), body, footer());
     return;
   }
   const track = repo.track(state.trackId);
   const [from, to] = range();
-  repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）
-  const body = state.view === 'day' ? dayList(track, from)
+  if (state.view !== 'list') repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）。リストは広い範囲を見るだけなので作らない
+  const body = state.view === 'list' ? listView(track, from, to) : state.view === 'day' ? dayList(track, from)
     : state.view === 'month' ? monthGrid(track, from)
     : isDaily(track) ? dailyWeek(track, from) : weekGrid(track, from, to);
   root.replaceChildren(header(track, from, to), body, footer());
 }
 
 function move(dir: 1 | -1): void {
+  if (state.view === 'list') return;
   state.anchor = state.view === 'day' ? addDays(state.anchor, dir) : state.view === 'month' ? addMonths(state.anchor, dir) : addDays(state.anchor, 7 * dir);
   render();
 }
@@ -112,10 +122,10 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
       h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
     h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙'));
-  const label = state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
+  const label = state.view === 'list' ? (state.listAll ? 'ぜんぶ' : '直近90日〜') : state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
   const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },
-    h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'), seg('month', '月')),
+    h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'), seg('month', '月'), seg('list', '📋 リスト')),
     h('button', { onclick: () => move(-1) }, '◀'),
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
@@ -269,7 +279,7 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
   return h('div', { class: 'gridWrap' }, h('table', { class: 'grid' },
     h('thead', null, h('tr', null, h('th', { class: 'dcol' }),
       track.slots.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
-        h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key)))))),
+        h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key, today >= from && today <= to ? today : from)))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
       h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)])),
       track.slots.map((s) => h('td', { class: 'cell' },
@@ -389,6 +399,29 @@ function allMonth(from: YMD): HTMLElement {
     h('tbody', null, Array.from({ length: 6 }, (_, w) => h('tr', null, days.slice(w * 7, w * 7 + 7).map(cell))))));
 }
 
+// ── 📋 リスト（日をまたいで縦に並べる。まだ／やった／🚫／ぜんぶ で絞る） ──────────
+function listView(track: Track | null, from: YMD, to: YMD): HTMLElement {
+  const tracks = track ? [track] : repo.tracks; const byId = new Map(tracks.map((t) => [t.id, t]));
+  const usesDone = tracks.some((t) => t.features.done);
+  const f = usesDone ? state.listFilter : 'all';
+  let es = repo.db.entries.filter((e) => byId.has(e.trackId) && e.date >= from && e.date <= to);
+  const total = es.length;
+  es = es.filter((e) => { const t = byId.get(e.trackId) as Track; if (f === 'all' || !t.features.done) return f === 'all' || f === 'done'; return f === 'open' ? !e.doneAt && !e.skippedAt : f === 'done' ? Boolean(e.doneAt) : Boolean(e.skippedAt); });
+  // まだ＝古い順（先に片づける順）／それ以外＝新しい順
+  const key = (e: Entry) => e.date + String(primaryMinute(byId.get(e.trackId) as Track, e) ?? 9999).padStart(4, '0');
+  es.sort((a, b) => (f === 'open' ? (key(a) < key(b) ? -1 : 1) : key(a) < key(b) ? 1 : -1));
+  const today = todayYMD(); const groups = new Map<YMD, Entry[]>();
+  for (const e of es) groups.set(e.date, [...(groups.get(e.date) ?? []), e]);
+  const fb = (v: ListFilter, l: string) => h('button', { class: f === v ? 'on' : '', onclick: () => { state.listFilter = v; render(); } }, l);
+  return h('div', { class: 'day list' },
+    h('div', { class: 'inline' }, usesDone ? h('span', { class: 'seg' }, fb('open', '◻️ まだ'), fb('done', '✅ やった'), fb('skip', '🚫 今日は無し'), fb('all', 'ぜんぶ')) : null,
+      h('small', null, `${es.length} / ${total} 件`), h('span', { class: 'sp' }),
+      h('button', { class: 'sm', onclick: () => { state.listAll = !state.listAll; render(); } }, state.listAll ? '直近90日〜に戻す' : 'もっと前も出す')),
+    es.length ? [...groups.entries()].map(([d, list]) => h('section', { class: d === today ? 'today' : d < today && f === 'open' ? 'late' : '' },
+      h('h3', { class: 'lnk', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, `${d.slice(5)}（${DOW_JA[dowOf(d)]}）`, d === today ? ' 今日' : '', h('small', null, d < today && f === 'open' ? ' 過ぎている' : '')),
+      list.map((e) => row(byId.get(e.trackId) as Track, e, !track)))) : h('p', { class: 'empty' }, f === 'open' ? 'まだのものはありません 🎉' : '—'));
+}
+
 // ── 部品 ─────────────────────────────────────────────────
 function statusBox(track: Track, e: Entry): HTMLElement | null {
   if (!track.features.done) return null;
@@ -440,12 +473,12 @@ function dayList(track: Track, d: YMD): HTMLElement {
   return h('div', { class: 'day' }, track.slots.map((s) => {
     const list = es.filter((e) => bucketOf(track, e) === s.key), gl = gs.filter((o) => bucketOfOccurrence(track, o) === s.key);
     return h('section', null,
-      h('h3', null, `${s.icon} ${s.label} `, h('small', null, s.startMin == null ? '' : slotRange(track, s.key))),
+      h('h3', null, `${s.icon} ${s.label} `, h('small', null, s.startMin == null ? '' : slotRange(track, s.key, d))),
       list.length || gl.length ? [list.map((e) => row(track, e)), gl.map((o) => ghost(track, o))] : h('p', { class: 'empty' }, '—'),
       h('button', { class: 'add', onclick: () => openEntryForm(ctx(), track, null, { date: d, slotKey: s.key }) }, '＋'));
   }));
 }
-function row(track: Track, e: Entry): HTMLElement {
+function row(track: Track, e: Entry, showTrack = false): HTMLElement {
   // 時刻があれば「HH:MM–HH:MM」。時刻が無くて長さだけなら「⏱30分」。両方あれば時刻＋⏱
   const span = (a: number | null, b: number | null, dur: number | null) => (a == null ? (dur != null ? `⏱${fmtDur(dur)}` : '—') : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}${dur != null && b == null ? ` ⏱${fmtDur(dur)}` : ''}`);
   return h('div', { class: `row ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}`, onclick: () => openEntryForm(ctx(), track, e) },
@@ -453,7 +486,7 @@ function row(track: Track, e: Entry): HTMLElement {
     h('div', { class: 'times' },
       h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd, planDurationOf(e))),
       h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd, actualDurationOf(e)))),
-    h('div', { class: 'ttl' }, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
+    h('div', { class: 'ttl' }, showTrack ? h('span', { class: 'tkicon', title: track.name }, track.icon + ' ') : null, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
 }
 
 function footer(): HTMLElement {

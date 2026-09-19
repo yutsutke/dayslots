@@ -42,6 +42,8 @@ export function isHoliday(d: YMD, custom: Set<YMD>): boolean {
 export function occurrences(rules: Rule[], from: YMD, to: YMD, customHolidays: Iterable<YMD> = []): Occurrence[] {
   const cs = customHolidays instanceof Set ? customHolidays : new Set(customHolidays);
   const out: Occurrence[] = [];
+  // 最後の砦＝窓は3年まで。遠すぎる端（9999年など）を渡されても1日ずつ数え続けて画面を固めない（2026-09-20 にリストで実際に踏んだ）
+  if (daysBetween(from, to) > 1100) to = addDays(from, 1100);
   for (const r of rules) {
     if (!r.active || !r.startDate || !r.freq) continue;
     const push = (start: YMD, end: YMD, multi: boolean) => {

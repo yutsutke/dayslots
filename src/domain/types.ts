@@ -22,6 +22,9 @@ export interface SlotDef {
   startMin: Minute | null;
   /** 時間帯の終わり（分・任意）。省いたら次の枡の始まりまで。次の枡より前で終えると、その隙間は受け皿へ落ちる（食事の 15:00〜16:30＝間食） */
   endMin?: Minute | null;
+  /** ☀ 始まりを日の出・日の入りで決める（あれば startMin より勝つ。startMin は白夜などで決まらない日の控え）。
+   *  {base:'sunrise'|'sunset', offsetMin}＝日の出の30分前など／{base:'daylight', num, den}＝日の出〜日の入りを den 等分した num 番目 */
+  sun?: { base: 'sunrise' | 'sunset'; offsetMin: number } | { base: 'daylight'; num: number; den: number } | null;
 }
 
 export interface TrackFeatures {
@@ -148,6 +151,7 @@ export interface Settings {
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true
   skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
   notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
+  sunPlace?: { lat: number; lon: number; name?: string }; // ☀ 日の出・日の入りを計算する場所。省略＝東京
   storage?: { kind: 'local' | 'drive' | 'supabase'; windowDays?: number | null; lastPushedAt?: ISO; remoteSavedAt?: ISO; driveClientId?: string; driveFolder?: string; supabaseUrl?: string; supabaseSecret?: string; lastSync?: ISO; lastError?: string }; // 保存場所（外の写し）。省略＝端末のみ
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）
