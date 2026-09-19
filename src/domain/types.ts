@@ -24,7 +24,7 @@ export interface SlotDef {
   endMin?: Minute | null;
   /** ☀ 始まりを日の出・日の入りで決める（あれば startMin より勝つ。startMin は白夜などで決まらない日の控え）。
    *  {base:'sunrise'|'sunset', offsetMin}＝日の出の30分前など／{base:'daylight', num, den}＝日の出〜日の入りを den 等分した num 番目 */
-  sun?: { base: 'sunrise' | 'sunset'; offsetMin: number } | { base: 'daylight'; num: number; den: number } | null;
+  sun?: { base: 'sunrise' | 'sunset'; offsetMin: number } | { base: 'daylight' | 'night'; num: number; den: number } | null;
 }
 
 export interface TrackFeatures {
@@ -152,10 +152,15 @@ export interface Settings {
   skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
   notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
   sunPlace?: { lat: number; lon: number; name?: string }; // ☀ 日の出・日の入りを計算する場所。省略＝東京
+  listBase?: YMD | null;       // 📋 リストの基準日（ここから何日、を出す）。省略/null＝今日
   storage?: { kind: 'local' | 'drive' | 'supabase'; windowDays?: number | null; lastPushedAt?: ISO; remoteSavedAt?: ISO; driveClientId?: string; driveFolder?: string; supabaseUrl?: string; supabaseSecret?: string; lastSync?: ISO; lastError?: string }; // 保存場所（外の写し）。省略＝端末のみ
   supabaseUrl: string;         // 📅 同期の Edge Function の場所（空＝未接続）
   calendarSecret: string;      // その合言葉（端末内だけ）
 }
+
+/** ⏱ なに未定の計測＝「⊞ すべて」で ▶ を押して始めた計測。種目も名前もまだ決めていない。
+ *  計っている最中でも、計り終わってからでも「なに」を決められる → 決めた時点で記録（Entry）になり、ここからは消える */
+export interface Timer { id: string; date: YMD; startMin: Minute; endMin: Minute | null; note: string | null; createdAt: ISO; }
 
 /** 未振り分け＝どの種目か解けなかった合図。黙って捨てず、あとで種目を選ぶ */
 export interface InboxItem { id: string; text: string; at: ISO; date: YMD; }
@@ -165,6 +170,7 @@ export interface Db {
   savedAt?: ISO;               // 端末が最後に保存した時刻（外の写しと比べて「新しい方が勝つ」の基準）
   window?: { from: YMD } | null; // 外の写しだけに付く印＝「記録はこの日から先のぶんだけ入っている」。取り込む側はこの日より前を触らない
   inbox?: InboxItem[];
+  timers?: Timer[];            // ⏱ なに未定の計測（進行中＝endMin が null）
   deleted?: string[];          // 消した記録の id（まだ外に伝えていないぶん）。送れたら空にする＝差分で「消した」を伝えるため
   tracks: Track[];
   entries: Entry[];

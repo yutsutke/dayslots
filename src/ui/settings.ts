@@ -150,7 +150,7 @@ function openTrackEditor(ctx: Ctx, track: Track, onSaved: () => void): void {
       h('div', { class: 'btns' },
         h('button', { onclick: () => { d.slots.push({ key: newKey(), label: '新しい枡', icon: '⬜', startMin: 12 * 60 }); draw(); } }, '＋ 時刻で決まる枡'),
         h('button', { onclick: () => { d.slots.push({ key: newKey(), label: '新しい枡', icon: '⬜', startMin: null }); draw(); } }, '＋ 選んだ時だけの枡'),
-        h('button', { title: '夜明け前／朝／昼／午後／夜 を、日の出の30分前・昼の3等分・日の入りで切った枡に置き換える', onclick: () => { if (!confirm('いまの「時刻で決まる枡」を、☀ で決まる5つの枡（夜明け前／朝／昼／午後／夜）に置き換えますか？\n記録は消えません（読むときに並び直るだけ）。「選んだ時だけ」の枡は残します。')) return; const keep = d.slots.filter((s) => s.startMin == null); d.slots = [...keep, { key: newKey(), label: '夜明け前', icon: '🌌', startMin: 0 }, { key: newKey() + 'a', label: '朝', icon: '🌅', startMin: 300, sun: { base: 'sunrise', offsetMin: -30 } }, { key: newKey() + 'b', label: '昼', icon: '☀️', startMin: 600, sun: { base: 'daylight', num: 1, den: 3 } }, { key: newKey() + 'c', label: '午後', icon: '🌇', startMin: 840, sun: { base: 'daylight', num: 2, den: 3 } }, { key: newKey() + 'd', label: '夜', icon: '🌙', startMin: 1080, sun: { base: 'sunset', offsetMin: 0 } }]; draw(); } }, '☀ 太陽で切る枡にする')),
+        h('button', { title: '朝（日の出の30分前）／昼・午後（昼を3等分）／夜（日の入り）／深夜（夜を2等分・0:00 をまたいで朝まで）に置き換える', onclick: () => { if (!confirm('いまの「時刻で決まる枡」を、☀ で決まる5つの枡（朝／昼／午後／夜／深夜）に置き換えますか？\n記録は消えません（読むときに並び直るだけ）。「選んだ時だけ」の枡は残します。')) return; const keep = d.slots.filter((s) => s.startMin == null); d.slots = [...keep, { key: newKey() + 'a', label: '朝', icon: '🌅', startMin: 300, sun: { base: 'sunrise', offsetMin: -30 } }, { key: newKey() + 'b', label: '昼', icon: '☀️', startMin: 600, sun: { base: 'daylight', num: 1, den: 3 } }, { key: newKey() + 'c', label: '午後', icon: '🌇', startMin: 840, sun: { base: 'daylight', num: 2, den: 3 } }, { key: newKey() + 'd', label: '夜', icon: '🌙', startMin: 1080, sun: { base: 'sunset', offsetMin: 0 } }, { key: newKey() + 'e', label: '深夜', icon: '🌌', startMin: 1410, sun: { base: 'night', num: 1, den: 2 } }]; draw(); } }, '☀ 太陽で切る枡にする')),
       field('受け皿', h('select', { onchange: (e: Event) => { d.fallbackKey = (e.target as HTMLSelectElement).value; } },
         d.slots.map((s) => h('option', { value: s.key, selected: s.key === d.fallbackKey }, `${s.icon} ${s.label}`))),
         hint('時刻も選択も無い記録、どの時間帯にも当たらない時刻の記録、消した枡に入っていた記録が落ちる所')),
@@ -164,15 +164,15 @@ function openTrackEditor(ctx: Ctx, track: Track, onSaved: () => void): void {
     const mode = !s.sun ? 'time' : s.sun.base;
     const sel = h('select', { onchange: (e: Event) => {
       const v = (e.target as HTMLSelectElement).value;
-      s.sun = v === 'time' ? null : v === 'daylight' ? { base: 'daylight', num: 1, den: 3 } : { base: v as 'sunrise' | 'sunset', offsetMin: 0 };
+      s.sun = v === 'time' ? null : v === 'daylight' || v === 'night' ? { base: v, num: 1, den: v === 'night' ? 2 : 3 } : { base: v as 'sunrise' | 'sunset', offsetMin: 0 };
       draw();
-    } }, ([['time', '🕐 時刻'], ['sunrise', '🌅 日の出'], ['sunset', '🌇 日の入り'], ['daylight', '☀ 昼を等分']] as const).map(([v, l]) => h('option', { value: v, selected: v === mode }, l)));
+    } }, ([['time', '🕐 時刻'], ['sunrise', '🌅 日の出'], ['sunset', '🌇 日の入り'], ['daylight', '☀ 昼を等分'], ['night', '🌙 夜を等分']] as const).map(([v, l]) => h('option', { value: v, selected: v === mode }, l)));
     const num = (val: number, set: (n: number) => void, attrs: Record<string, unknown>) => h('input', { type: 'number', value: val, style: { width: '4.5em' }, ...attrs, onchange: (e: Event) => { set(Number((e.target as HTMLInputElement).value) || 0); draw(); } });
     const today = s.sun ? startOf(s) : null;
     return [sel,
       !s.sun ? timeInput(s.startMin, (v) => { s.startMin = v ?? 0; })
-        : s.sun.base === 'daylight' ? h('span', { class: 'inline' }, num(s.sun.den, (n) => { if (s.sun && s.sun.base === 'daylight') s.sun.den = n; }, { min: 2, max: 12 }), '等分の', num(s.sun.num, (n) => { if (s.sun && s.sun.base === 'daylight') s.sun.num = n; }, { min: 0, max: 12 }), 'つ目')
-        : h('span', { class: 'inline' }, num(s.sun.offsetMin, (n) => { if (s.sun && s.sun.base !== 'daylight') s.sun.offsetMin = n; }, { step: 5, min: -360, max: 360 }), '分（−＝前）'),
+        : 'num' in s.sun ? h('span', { class: 'inline' }, num(s.sun.den, (n) => { if (s.sun && 'den' in s.sun) s.sun.den = n; }, { min: 2, max: 12 }), '等分の', num(s.sun.num, (n) => { if (s.sun && 'num' in s.sun) s.sun.num = n; }, { min: 0, max: 12 }), 'つ目')
+        : h('span', { class: 'inline' }, num(s.sun.offsetMin, (n) => { if (s.sun && 'offsetMin' in s.sun) s.sun.offsetMin = n; }, { step: 5, min: -360, max: 360 }), '分（−＝前）'),
       s.sun ? hint(`${describeSun(s.sun)}＝今日は ${today != null ? fmtMin(today) : '—'}（日で変わる・5分刻み）`) : null];
   };
   const slotRow = (s: SlotDef, i: number) => {

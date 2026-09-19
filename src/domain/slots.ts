@@ -38,18 +38,27 @@ export function slotEnd(t: Track, key: string, date: YMD = todayYMD()): Minute |
   const next = i + 1 < ts.length ? (startOf(ts[i + 1], date) as number) : 1440;
   const own = ts[i].endMin; return own != null && own < next && own > (startOf(ts[i], date) as number) ? own : next;
 }
+/** 0:00 をまたぐか＝その日いちばん遅く始まる枡が ☀（日の入り・夜の等分）で、終わりを決めていないとき。
+ *  そのとき 0:00〜最初の枡の始まり は「前の晩の枡の続き」になる（夜を等分した枡が未明で切れて受け皿に落ちないように） */
+export function wraps(t: Track, date: YMD = todayYMD()): boolean {
+  const ts = timedSlots(t, date); if (ts.length < 2) return false;
+  const last = ts[ts.length - 1]; return Boolean(last.sun) && last.endMin == null && (startOf(ts[0], date) as number) > 0;
+}
 /** 分 → 枡の key。当たらなければ受け皿 */
 export function slotOfMinute(t: Track, m: Minute, date: YMD = todayYMD()): string {
   const ts = timedSlots(t, date);
   for (const s of ts) { const a = startOf(s, date) as number, b = slotEnd(t, s.key, date) as number; if (m >= a && m < b) return s.key; }
   if (m >= 1440 && ts.length) { const last = ts[ts.length - 1]; if (slotEnd(t, last.key, date) === 1440) return last.key; } // 24:00 ちょうどは最後の枡へ
+  if (wraps(t, date) && m < (startOf(ts[0], date) as number)) return ts[ts.length - 1].key; // 未明＝前の晩の枡の続き
   return t.fallbackKey;
 }
 /** 見出しに出す時刻の範囲（「11:00〜14:00」）。⚠ 書かずに作る＝境目を動かしても説明が古くならない。☀ の枡は日で変わるので「≈」を付ける */
 export function slotRange(t: Track, key: string, date: YMD = todayYMD()): string {
   const s = t.slots.find((x) => x.key === key); if (!s || s.startMin == null) return '';
   const a = startOf(s, date) as number, b = slotEnd(t, key, date) as number;
-  const sunny = Boolean(s.sun) || timedSlots(t, date).some((x, i, arr) => arr[i - 1]?.key === key && x.sun);
+  const ts = timedSlots(t, date);
+  const sunny = Boolean(s.sun) || ts.some((x, i, arr) => arr[i - 1]?.key === key && x.sun);
+  if (wraps(t, date) && ts[ts.length - 1].key === key) return `≈${fmtMin(a)}〜翌${fmtMin(startOf(ts[0], date) as number)}`; // 0:00 をまたぐ最後の枡
   return `${sunny ? '≈' : ''}${a ? fmtMin(a) : '0:00'}〜${b < 1440 ? fmtMin(b) : '24:00'}`;
 }
 
@@ -98,8 +107,8 @@ export function validateSlots(slots: SlotDef[], fallbackKey: string): string[] {
     if (!s.label.trim()) errs.push(`枡の呼び名が空です（${s.key}）`);
     if (s.startMin != null && (!Number.isInteger(s.startMin) || s.startMin < 0 || s.startMin >= 1440)) errs.push(`始まりの時刻が 0:00〜23:59 の外です（${s.label}）`);
     if (s.endMin != null && s.startMin != null && !s.sun && (s.endMin <= s.startMin || s.endMin > 1440)) errs.push(`終わりの時刻が始まりより前です（${s.label}）`);
-    if (s.sun && s.sun.base === 'daylight' && !(s.sun.den >= 2 && s.sun.den <= 12 && s.sun.num >= 0 && s.sun.num <= s.sun.den)) errs.push(`昼の等分の数が変です（${s.label}：2〜12 等分の 0〜N 番目）`);
-    if (s.sun && s.sun.base !== 'daylight' && Math.abs(s.sun.offsetMin) > 360) errs.push(`日の出・日の入りからのずらしは 6 時間まで（${s.label}）`);
+    if (s.sun && (s.sun.base === 'daylight' || s.sun.base === 'night') && !(s.sun.den >= 2 && s.sun.den <= 12 && s.sun.num >= 0 && s.sun.num <= s.sun.den)) errs.push(`等分の数が変です（${s.label}：2〜12 等分の 0〜N 番目）`);
+    if (s.sun && (s.sun.base === 'sunrise' || s.sun.base === 'sunset') && Math.abs(s.sun.offsetMin) > 360) errs.push(`日の出・日の入りからのずらしは 6 時間まで（${s.label}）`);
   }
   // 時刻で決まる枡が1つも無いのは通す（一日一回の種目＝「その日」だけ）。時刻を入れた記録は受け皿に落ちる
   // ⚠ ☀ の枡は日によって始まりが動くので、「同じ時刻」「食い込み」の検査は ☀ でない枡どうしだけ

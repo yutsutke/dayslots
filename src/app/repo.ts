@@ -7,7 +7,7 @@
  *   ・⭐ の「使った回数・最後に使った日」は保存せず記録から数える
  *   ・型（⭐）や規則（🔁）を消しても、そこから作った記録は残る
  */
-import type { Db, Entry, Track, Template, Rule, YMD, TrackKind } from '../domain/types';
+import type { Db, Entry, Track, Template, Rule, YMD, TrackKind, Timer } from '../domain/types';
 import type { Store } from '../store/store';
 import { occurrences, type Occurrence } from '../domain/recur';
 import { todayYMD, addDays } from '../domain/dates';
@@ -265,6 +265,8 @@ export class Repo {
     const today = this.today(); const at = sig.time ?? nowMinute();
     // ⏵ 進行中があるとき、動詞も時刻も長さも無い言葉は**その記録のメモに積む**（「散歩開始」→「きれいな花」「鳥の声」→「散歩終了」）
     if (sig.verb === 'add' && sig.dur == null && sig.time == null) {
+      const tmr = !trackId && !this.running()[0] ? this.runningTimers()[0] : undefined;
+      if (tmr && !resolve(sig.name, this.tracks, this.db.templates)) { this.noteTimer(tmr.id, `${fmt(at)} ${sig.name || text.trim()}`); return { kind: 'noted', message: `📝 ⏵ なに未定の計測 にメモ「${sig.name || text.trim()}」` }; }
       const run = this.running(trackId)[0];
       if (run && (trackId || !resolve(sig.name, this.tracks, this.db.templates))) {
         const line = `${fmt(at)} ${sig.name || text.trim()}`;
@@ -291,11 +293,7 @@ export class Repo {
     switch (sig.verb) {
       case 'start': {
         // 「次を開始すると前が止まる」（Now Then）＝同じものが走っていれば二重に始めず、他の進行中は自動で終了（⚙ で切れる）
-        const stopped: string[] = [];
-        for (const run of this.running()) {
-          if (run.trackId === t.id && run.title === title) continue;
-          if (this.db.settings.autoStop ?? true) { this.stop(run.id, at); stopped.push(`${this.track(run.trackId).icon} ${run.title}`); }
-        }
+        const stopped = this.stopOthers(t.id, title, at);
         const e = fresh({ actualDate: today, actualStart: at, actualDur: sig.dur });
         return { kind: 'started', entry: e, message: `⏵ ${label} を ${fmt(at)} に開始${stopped.length ? `（${stopped.join('・')} を終了）` : ''}` };
       }
@@ -331,6 +329,64 @@ export class Repo {
       }
     }
   }
+  /** 「次を開始すると前が止まる」＝他の進行中（記録も、なに未定の計測も）をその時刻で終了。⚙ で切ってあれば何もしない。戻り＝止めたものの名前 */
+  private stopOthers(trackId: string | null, title: string | null, at: number): string[] {
+    if (!(this.db.settings.autoStop ?? true)) return [];
+    const stopped: string[] = [];
+    for (const run of this.running()) {
+      if (run.trackId === trackId && run.title === title) continue;
+      this.stop(run.id, at); stopped.push(`${this.track(run.trackId).icon} ${run.title}`);
+    }
+    for (const tm of this.runningTimers()) { this.stopTimer(tm.id, at); stopped.push('⏱ なに未定'); }
+    return stopped;
+  }
+  /** ▶ の候補＝その種目の ⭐ いつもの。無ければ種目の名前そのもの（座禅など）。1つなら選ばずに始められる */
+  candidates(trackId: string): { title: string; templateId: string | null }[] {
+    const t = this.track(trackId); const tpls = this.templatesFor(trackId);
+    if (t.features.daily || !tpls.length) return [{ title: t.name, templateId: null }];
+    return tpls.map((x) => ({ title: x.title || x.name, templateId: x.id }));
+  }
+  /** ▶ いまの時刻から始める（合図の「開始」と同じ結果。名前に「30分」などが入っていても解釈し直さない） */
+  startNow(trackId: string, title: string, templateId: string | null = null, at: number = nowMinute()): { entry: Entry; message: string } {
+    const t = this.track(trackId); const stopped = this.stopOthers(trackId, title, at);
+    const tpl = templateId ? this.db.templates.find((x) => x.id === templateId) : null;
+    const e = this.addEntry(trackId, { date: this.today(), title, templateId, actualDate: this.today(), actualStart: at, note: tpl?.note ?? null,
+      payload: { ...(tpl ? structuredClone(tpl.payload) : {}), signal: 'start' }, calendar: Boolean(tpl?.calendar) });
+    return { entry: e, message: `⏵ ${t.icon} ${title} を ${fmt(at)} に開始${stopped.length ? `（${stopped.join('・')} を終了）` : ''}` };
+  }
+  // ── ⏱ なに未定の計測（「⊞ すべて」の ▶）。最中でも、終わってからでも「なに」を決められる ──
+  runningTimers(): Timer[] { return (this.db.timers ?? []).filter((x) => x.endMin == null); }
+  finishedTimers(): Timer[] { return (this.db.timers ?? []).filter((x) => x.endMin != null); }
+  startTimer(at: number = nowMinute()): { timer: Timer; message: string } {
+    const stopped = this.stopOthers(null, null, at);
+    const tm: Timer = { id: uid(), date: this.today(), startMin: at, endMin: null, note: null, createdAt: nowIso() };
+    (this.db.timers ??= []).push(tm); void this.persist();
+    return { timer: tm, message: `⏵ ${fmt(at)} に計り始めました（なに は後で決められます）${stopped.length ? `（${stopped.join('・')} を終了）` : ''}` };
+  }
+  stopTimer(id: string, at: number = nowMinute()): Timer {
+    const tm = (this.db.timers ?? []).find((x) => x.id === id); if (!tm) throw new Error('その計測はありません');
+    tm.endMin = Math.min(1440, Math.max(at, tm.startMin + 1)); void this.persist(); return tm;
+  }
+  noteTimer(id: string, line: string): void { const tm = (this.db.timers ?? []).find((x) => x.id === id); if (tm) { tm.note = [tm.note, line].filter(Boolean).join('\n'); void this.persist(); } }
+  dropTimer(id: string): void { this.db.timers = (this.db.timers ?? []).filter((x) => x.id !== id); void this.persist(); }
+  /** 「なに」を決める＝計測を記録にする。計っている最中なら ⏵ 進行中の記録に、終わっていれば 始まり〜終わり の入った記録（✅ を使う種目は ✅）に */
+  assignTimer(id: string, trackId: string, title: string, templateId: string | null = null): Entry {
+    const tm = (this.db.timers ?? []).find((x) => x.id === id); if (!tm) throw new Error('その計測はありません');
+    const t = this.track(trackId); const tpl = templateId ? this.db.templates.find((x) => x.id === templateId) : null;
+    const running = tm.endMin == null;
+    const e = this.addEntry(trackId, { date: tm.date, title, templateId, actualDate: tm.date, actualStart: tm.startMin, actualEnd: tm.endMin,
+      note: [tpl?.note, tm.note].filter(Boolean).join('\n') || null, doneAt: !running && t.features.done ? nowIso() : null,
+      payload: { ...(tpl ? structuredClone(tpl.payload) : {}), signal: running ? 'start' : 'pair' }, calendar: Boolean(tpl?.calendar) });
+    this.dropTimer(id); return e;
+  }
+  /** ⏹ いちばん新しい進行中を今で止める（種目を渡せばその種目の中だけ。すべて なら、なに未定の計測も含めて新しい方） */
+  stopLatest(trackId?: string, at: number = nowMinute()): string | null {
+    const e = this.running(trackId)[0]; const tm = trackId ? undefined : [...this.runningTimers()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+    if (tm && (!e || tm.createdAt > e.createdAt)) { this.stopTimer(tm.id, at); return `⏹ なに未定の計測を ${fmt(at)} に終了（なに を決めてください）`; }
+    if (e) { this.stop(e.id, at); return `⏹ ${this.track(e.trackId).icon} ${e.title} を ${fmt(at)} に終了`; }
+    return null;
+  }
+
   /** 未振り分けを種目に振る（合図としてもう一度通す） */
   assignInbox(id: string, trackId: string): { kind: string; message: string } {
     const item = (this.db.inbox ?? []).find((x) => x.id === id); if (!item) throw new Error('その項目はありません');

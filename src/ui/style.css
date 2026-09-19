@@ -147,6 +147,11 @@ button.sm { padding: 2px 6px; font-size: 12px; }
 .sigBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
 .sigBar .grow { flex: 1 1 260px; }
 .sigBar .grow input.sig { flex: 1; min-width: 0; }
+.sigBar .startBtn { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; }
+.sigBar .stopBtn { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.sigBar .stopBtn:disabled { border-color: var(--line); color: var(--dim); }
+.inbox.timers { border-color: var(--accent); }
+.list input[type="date"] { padding: 3px 6px; }
 .sigBar .mic { font-size: 16px; padding: 4px 8px; }
 .sigBar .mic.on { background: var(--danger); border-color: var(--danger); animation: pulse 1s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }

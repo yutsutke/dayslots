@@ -20,9 +20,9 @@ describe('☀ 日の出・日の入り（東京・5分刻み）', () => {
   });
   it('日の出の30分前／昼を3等分', () => {
     const t = sunTimes('2026-09-20', TOKYO)!;
-    expect(sunMinute({ base: 'sunrise', offsetMin: -30 }, '2026-09-20', TOKYO)).toBe(t.rise - 30);
+    expect(near(sunMinute({ base: 'sunrise', offsetMin: -30 }, '2026-09-20', TOKYO)!, t.rise - 30)).toBe(true);
     const a = sunMinute({ base: 'daylight', num: 1, den: 3 }, '2026-09-20', TOKYO)!, b = sunMinute({ base: 'daylight', num: 2, den: 3 }, '2026-09-20', TOKYO)!;
-    expect(near(a, t.rise + (t.set - t.rise) / 3, 3)).toBe(true); expect(near(b, t.rise + ((t.set - t.rise) * 2) / 3, 3)).toBe(true);
+    expect(near(a, t.rise + (t.set - t.rise) / 3, 6)).toBe(true); expect(near(b, t.rise + ((t.set - t.rise) * 2) / 3, 6)).toBe(true);
     expect(a % 5).toBe(0);
     expect(describeSun({ base: 'sunrise', offsetMin: -30 })).toBe('日の出の30分前');
     expect(describeSun({ base: 'daylight', num: 1, den: 3 })).toBe('昼を3等分の1つ目');

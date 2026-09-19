@@ -13,10 +13,11 @@ import { openSettings } from './settings';
 import { pending } from '../sync/calendar';
 import { Syncer } from '../sync/target';
 import { buildReview } from '../app/review';
-import type { Entry, Track, YMD, ShowFlags } from '../domain/types';
+import type { Entry, Track, YMD, ShowFlags, Timer } from '../domain/types';
+import { daysBetween } from '../domain/dates';
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v17';
+export const BUILD = 'v18';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -44,7 +45,7 @@ export async function boot(el: HTMLElement): Promise<void> {
   render();
   void syncer.pullIfNewer();
   // ⏵ 進行中の経過分を1分ごとに描き直す（記録は触らない＝時刻から計算するだけ。長すぎれば OS の通知も）
-  setInterval(() => { if (repo.running().length) { notifyOverdue(); render(); } }, 60_000);
+  setInterval(() => { if (repo.running().length || repo.runningTimers().length) { notifyOverdue(); render(); } }, 60_000);
 }
 export let syncer: Syncer;
 const notified = new Set<string>();
@@ -137,14 +138,45 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
       h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
     ] : hint('足す・⭐・🔁 は種目のタブで'));
-  return h('header', null, runningStrip(), tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox());
+  return h('header', null, runningStrip(), tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox(), timersBox());
+}
+
+/** 「なに」を選ぶ板＝種目 → 候補（⭐ いつもの か 種目の名前）／名前を入れる。fixed があれば種目は決め打ち */
+function openWhat(title: string, onPick: (trackId: string, name: string, templateId: string | null) => void, fixed?: Track): void {
+  const body = hh('div'); const m = modal(title, body); let cur: Track | null = fixed ?? null;
+  const draw = () => {
+    const pick = (t: Track, name: string, tid: string | null) => { m.close(); onPick(t.id, name, tid); };
+    body.replaceChildren(...(cur == null
+      ? [hh('p', { class: 'hint' }, '種目を選ぶ'), hh('div', { class: 'btns' }, repo.tracks.map((t) => hh('button', { onclick: () => { const c = repo.candidates(t.id); if (c.length === 1) pick(t, c[0].title, c[0].templateId); else { cur = t; draw(); } } }, `${t.icon} ${t.name}`)))]
+      : [hh('p', { class: 'hint' }, `${cur.icon} ${cur.name} の なに？`),
+         hh('div', { class: 'btns' }, repo.candidates(cur.id).map((c) => hh('button', { class: 'primary', onclick: () => pick(cur as Track, c.title, c.templateId) }, c.title))),
+         hh('div', { class: 'inline' }, hh('button', { onclick: () => { const n = prompt('なに？（名前）'); if (n?.trim()) pick(cur as Track, n.trim(), null); } }, '✏️ 名前を入れる'), fixed ? null : hh('button', { class: 'ghost', onclick: () => { cur = null; draw(); } }, '← 種目に戻る')),
+         hh('p', { class: 'hint' }, '候補は ⭐ いつもの です（⭐ に足すとここに出ます）')]));
+  };
+  draw();
+}
+/** ⏱ 計り終わったが「なに」がまだの計測（どのタブでも出す＝忘れない） */
+function timersBox(): HTMLElement | null {
+  const list = repo.finishedTimers(); if (!list.length) return null;
+  return h('div', { class: 'inbox timers' }, h('b', null, `⏱ なに未定の計測 ${list.length}`), list.map((tm) => h('div', { class: 'inline' },
+    h('span', null, `${tm.date.slice(5)} ${fmtMin(tm.startMin)}〜${fmtMin(tm.endMin as number)} `, h('b', null, fmtDur((tm.endMin as number) - tm.startMin)), tm.note ? h('small', null, ` 「${tm.note.replace(/\n/g, ' / ').slice(0, 40)}」`) : null),
+    h('button', { class: 'primary sm', onclick: () => openWhat('⏱ なにを計っていた？', (tid, name, tpl) => { const e = repo.assignTimer(tm.id, tid, name, tpl); lastToast = `${repo.track(tid).icon} ${e.title} として記録しました`; render(); }) }, 'なにを決める'),
+    h('button', { class: 'ghost sm', title: 'この計測を捨てる', onclick: () => { if (confirm('この計測を捨てますか？')) { repo.dropTimer(tm.id); render(); } } }, '✕'))));
+}
+function timerRow(tm: Timer): HTMLElement {
+  const el = Math.max(0, daysBetween(tm.date, todayYMD()) * 1440 + (new Date().getHours() * 60 + new Date().getMinutes()) - tm.startMin);
+  return h('div', { class: 'runRow' },
+    h('span', null, '⏵ （なに未定） ', h('small', null, `${fmtMin(tm.startMin)}〜 `), h('b', null, fmtDur(el)), tm.note ? h('small', null, ` 「${tm.note.replace(/\n/g, ' / ').slice(0, 30)}」`) : null),
+    h('span', { class: 'sp' }),
+    h('button', { class: 'sm', onclick: () => openWhat('⏱ なにを計っている？', (tid, name, tpl) => { repo.assignTimer(tm.id, tid, name, tpl); lastToast = `⏵ ${repo.track(tid).icon} ${name} として計り続けます`; render(); }) }, 'なにを決める'),
+    h('button', { class: 'sm primary', onclick: () => { repo.stopTimer(tm.id); lastToast = '⏹ 計り終わりました（なに を決めてください）'; render(); } }, '⏹ 今 終了'));
 }
 
 /** ⏵ 進行中を**常時1行**（Timery の走行中の帯を写した）＝どのタブでも一番上。経過分・⏹・長すぎれば「まだ続いていますか？」 */
 function runningStrip(): HTMLElement | null {
-  const run = repo.running(); if (!run.length) return null;
+  const run = repo.running(); const tms = repo.runningTimers(); if (!run.length && !tms.length) return null;
   const over = new Set(repo.overdue().map((e) => e.id));
-  return h('div', { class: 'runStrip' }, run.map((e) => {
+  return h('div', { class: 'runStrip' }, tms.map(timerRow), run.map((e) => {
     const t = repo.track(e.trackId); const el = repo.elapsed(e); const late = over.has(e.id);
     return h('div', { class: 'runRow' + (late ? ' late' : '') },
       h('span', { class: 'lnk', onclick: () => openEntryForm(ctx(), t, e) }, `⏵ ${t.icon} ${e.title} `, h('small', null, `${fmtMin(e.actualStart as number)}〜 `), h('b', null, fmtDur(Math.max(0, el)))),
@@ -174,7 +206,17 @@ function signalBar(track: Track | null): HTMLElement {
     rec = listen((t) => { inp.value = t; }, (t) => { rec = null; mic!.classList.remove('on'); inp.value = t; go(t); }, (msg) => { rec = null; mic!.classList.remove('on'); lastToast = `⚠ ${msg}`; render(); });
   } }, '🎤') : null;
   const run = repo.running(track?.id);
+  // ▶ いまから計る＝種目を選んでいれば候補が1つならそのまま・複数なら選んでから。「すべて」なら なに を決めずに始める
+  const start = () => {
+    if (!track) { lastToast = repo.startTimer().message; render(); return; }
+    const c = repo.candidates(track.id);
+    if (c.length === 1) { lastToast = repo.startNow(track.id, c[0].title, c[0].templateId).message; render(); return; }
+    openWhat(`▶ ${track.icon} ${track.name}：なにを始める？`, (tid, name, tpl) => { lastToast = repo.startNow(tid, name, tpl).message; render(); }, track);
+  };
+  const canStop = run.length > 0 || (!track && repo.runningTimers().length > 0);
   return h('div', { class: 'sigBar' },
+    h('button', { class: 'startBtn', title: track ? 'いまの時刻から計り始める' : 'いまの時刻から計り始める（なに は後で決められる）', onclick: start }, '▶ スタート'),
+    h('button', { class: 'stopBtn', disabled: !canStop, title: 'いちばん新しい進行中を今で止める', onclick: () => { const msg = repo.stopLatest(track?.id); if (msg) lastToast = msg; render(); } }, '⏹ ストップ'),
     h('span', { class: 'inline grow' }, inp, mic, h('button', { class: 'primary', onclick: () => go() }, '入れる')),
     run.length ? h('button', { class: 'runBtn ghost sm', title: '進行中の一覧', onclick: () => openRunning() }, `⏵ ${run.length}`) : null,
     lastToast ? h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast) : null);
@@ -412,13 +454,18 @@ function listView(track: Track | null, from: YMD, to: YMD): HTMLElement {
   es.sort((a, b) => (f === 'open' ? (key(a) < key(b) ? -1 : 1) : key(a) < key(b) ? 1 : -1));
   const today = todayYMD(); const groups = new Map<YMD, Entry[]>();
   for (const e of es) groups.set(e.date, [...(groups.get(e.date) ?? []), e]);
+  const base = repo.db.settings.listBase ?? today;
+  const since = (d: YMD) => { const n = daysBetween(base, d); return n === 0 ? '基準日' : n > 0 ? `基準日から ${n}日` : `基準日の ${-n}日前`; };
   const fb = (v: ListFilter, l: string) => h('button', { class: f === v ? 'on' : '', onclick: () => { state.listFilter = v; render(); } }, l);
   return h('div', { class: 'day list' },
     h('div', { class: 'inline' }, usesDone ? h('span', { class: 'seg' }, fb('open', '◻️ まだ'), fb('done', '✅ やった'), fb('skip', '🚫 今日は無し'), fb('all', 'ぜんぶ')) : null,
-      h('small', null, `${es.length} / ${total} 件`), h('span', { class: 'sp' }),
+      h('small', null, `${es.length} / ${total} 件`),
+      h('span', { class: 'inline', title: 'この日から何日たったか（何日前か）を、日付の横に出します' }, '基準日', h('input', { type: 'date', value: base, onchange: (e: Event) => { repo.db.settings.listBase = (e.target as HTMLInputElement).value || null; void repo.persist(); render(); } }),
+        repo.db.settings.listBase ? h('button', { class: 'ghost sm', onclick: () => { repo.db.settings.listBase = null; void repo.persist(); render(); } }, '今日に戻す') : null),
+      h('span', { class: 'sp' }),
       h('button', { class: 'sm', onclick: () => { state.listAll = !state.listAll; render(); } }, state.listAll ? '直近90日〜に戻す' : 'もっと前も出す')),
     es.length ? [...groups.entries()].map(([d, list]) => h('section', { class: d === today ? 'today' : d < today && f === 'open' ? 'late' : '' },
-      h('h3', { class: 'lnk', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, `${d.slice(5)}（${DOW_JA[dowOf(d)]}）`, d === today ? ' 今日' : '', h('small', null, d < today && f === 'open' ? ' 過ぎている' : '')),
+      h('h3', { class: 'lnk', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, `${d.slice(5)}（${DOW_JA[dowOf(d)]}）`, d === today ? ' 今日' : '', h('small', null, ` ${since(d)}`, d < today && f === 'open' ? '・過ぎている' : '')),
       list.map((e) => row(byId.get(e.trackId) as Track, e, !track)))) : h('p', { class: 'empty' }, f === 'open' ? 'まだのものはありません 🎉' : '—'));
 }
 
