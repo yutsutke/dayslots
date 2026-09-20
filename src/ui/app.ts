@@ -17,11 +17,12 @@ import type { Entry, Track, YMD, ShowFlags, Timer } from '../domain/types';
 import { daysBetween } from '../domain/dates';
 import { dayStartLabel, switchMinute } from '../domain/viewday';
 import { getSunPlace, displaySlots } from '../domain/slots';
+import { gapLine, fmtGapStats } from '../domain/gap';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v20';
+export const BUILD = 'v21';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -303,6 +304,11 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
   if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, repo.viewToday())} 日`);
   const ds = repo.durationStats(track.id, from, to);
   if (ds.total > 0) parts.push(`⏱ 合計 ${fmtDur(ds.total)} · 平均 ${fmtDur(ds.avg)}/回（${ds.count}回）`);
+  // 予定とのズレ＝予定と実際の両方がある記録だけ。無い種目（食事など）には何も出ない
+  const gp = repo.gapStats(track.id, from, to);
+  if (gp.start.count) parts.push(`始まりのズレ ${fmtGapStats(gp.start, 'start')}`);
+  if (gp.dur.count) parts.push(`長さのズレ ${fmtGapStats(gp.dur, 'dur')}`);
+  if (gp.days.count) parts.push(`日のズレ ${fmtGapStats(gp.days, 'days')}`);
   if (track.kind === 'receipt') { const yen = repo.entriesFor(track.id, from, to).reduce((a, e) => a + (Number((e.payload.receipt as { total?: number } | undefined)?.total) || 0), 0); if (yen) parts.push(`💴 ¥${yen.toLocaleString()}`); }
   if (track.kind === 'meal') {
     const es = repo.entriesFor(track.id, from, to);
@@ -536,11 +542,13 @@ function dayList(track: Track, d: YMD): HTMLElement {
 function row(track: Track, e: Entry, showTrack = false): HTMLElement {
   // 時刻があれば「HH:MM–HH:MM」。時刻が無くて長さだけなら「⏱30分」。両方あれば時刻＋⏱
   const span = (a: number | null, b: number | null, dur: number | null) => (a == null ? (dur != null ? `⏱${fmtDur(dur)}` : '—') : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}${dur != null && b == null ? ` ⏱${fmtDur(dur)}` : ''}`);
+  const gap = gapLine(e, false); // 予定と実際が真上に並んでいるので「予定より」は省く
   return h('div', { class: `row ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}`, onclick: () => openEntryForm(ctx(), track, e) },
     statusBox(track, e),
     h('div', { class: 'times' },
       h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd, planDurationOf(e))),
-      h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd, actualDurationOf(e)))),
+      h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd, actualDurationOf(e))),
+      gap ? h('div', { class: 'gap' }, gap) : null), // ズレは引き算で出す＝保存していない
     h('div', { class: 'ttl' }, showTrack ? h('span', { class: 'tkicon', title: track.name }, track.icon + ' ') : null, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
 }
 

@@ -13,6 +13,7 @@ import { occurrences, type Occurrence } from '../domain/recur';
 import { todayYMD, addDays } from '../domain/dates';
 import { PRESETS } from '../domain/defaults';
 import { durationOf, primaryMinute, getSunPlace } from '../domain/slots';
+import { gapStats as gapStatsOf, type GapKind, type GapStats } from '../domain/gap';
 import { viewDateOf, viewToday, MIDNIGHT, type DayStart } from '../domain/viewday';
 import { parseSignal, resolve, type Signal } from '../domain/signal';
 import { nowMinute } from '../domain/dates';
@@ -437,6 +438,10 @@ export class Repo {
     const ds = this.entriesFor(trackId, from, to).filter((e) => !e.skippedAt).map((e) => durationOf(e)).filter((d): d is number => d != null && d > 0);
     const total = ds.reduce((a, b) => a + b, 0);
     return { total, count: ds.length, avg: ds.length ? Math.round(total / ds.length) : 0 };
+  }
+  /** ズレ（予定と実際の差）のまとめ＝時刻／長さ／日。計算は domain/gap.ts の1か所、ここは期間で切るだけ */
+  gapStats(trackId: string, from: YMD, to: YMD): Record<GapKind, GapStats> {
+    return gapStatsOf(this.entriesFor(trackId, from, to));
   }
   exportJson(): string { return JSON.stringify(this.db, null, 1); }
   importJson(s: string): void {

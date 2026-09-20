@@ -68,6 +68,7 @@ table.grid tr.today th.dcol b { color: #f0883e; }
 .row .times { flex: 0 0 120px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .row .ttl { flex: 1; }
 .row .sub { display: block; }
+.row .times .gap { color: var(--dim); font-size: 11px; } /* ズレ＝予定と実際の差。記録には無い値なので、時刻より控えめに出す */
 
 /* 📋 リスト */
 .list > .inline { margin-bottom: 8px; }
