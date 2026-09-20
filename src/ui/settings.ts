@@ -5,6 +5,7 @@ import type { Track, TrackKind, SlotDef } from '../domain/types';
 import { KIND_LABEL } from '../domain/defaults';
 import { validateSlots, slotRange, startOf, fmtMin, setSunPlace } from '../domain/slots';
 import { sunTimes, describeSun, TOKYO } from '../domain/sun';
+import { cycleStart, cycleEnd, cycleIndex, validateCycle, MIN_CYCLE, MAX_CYCLE } from '../domain/cycle';
 import { GoogleViaEdgeFunction, pending, syncAll } from '../sync/calendar';
 import { seedDb } from '../store/seed';
 import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '../ai/byok';
@@ -13,6 +14,26 @@ import { exportSqlite } from '../export/sqlite';
 import { syncer } from './app';
 import { buildReview } from '../app/review';
 import { todayYMD } from '../domain/dates';
+
+/** N日のひと区切り＝日数と数え始める日。いま見ている日がどの区切りに入るかを、その場で見せる */
+function cycleBlock(ctx: Ctx, draw: () => void): HTMLElement {
+  const { repo } = ctx;
+  const c = repo.db.settings.cycle ?? { days: 3, from: repo.viewToday() };
+  const save = (days: number, from: string) => {
+    const errs = validateCycle(days, from);
+    if (errs.length) { alert(errs.join('\n')); return; }
+    repo.db.settings.cycle = { days, from };
+    void repo.persist(); draw(); ctx.render();
+  };
+  const today = repo.viewToday();
+  return h('div', null,
+    field('ひと区切りの日数', h('div', { class: 'inline' },
+      h('div', { class: 'btns' }, [3, 5, 10].map((n) => h('button', { class: c.days === n ? 'on' : '', onclick: () => save(n, c.from) }, `${n}日`))),
+      h('input', { type: 'number', min: MIN_CYCLE, max: MAX_CYCLE, value: c.days, style: { width: '5em' }, onchange: (e: Event) => save(Number((e.target as HTMLInputElement).value), c.from) }), '日')),
+    field('数え始める日', h('input', { type: 'date', value: c.from, onchange: (e: Event) => save(c.days, (e.target as HTMLInputElement).value) }),
+      hint('この日を含む区切りが「1周目」。前の日も同じ幅で切ります（0周目・-1周目…）＝途中から数え始めても、それ以前が崩れません')),
+    hint(`今日（${today}）は ${cycleIndex(today, c.from, c.days)}周目＝${cycleStart(today, c.from, c.days)} 〜 ${cycleEnd(today, c.from, c.days).slice(5)}`));
+}
 
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
@@ -40,6 +61,10 @@ export function openSettings(ctx: Ctx): void {
       h('div', { class: 'btns' },
         h('button', { class: st.weekStart === 0 ? 'on' : '', onclick: () => { st.weekStart = 0; void repo.persist(); draw(); } }, '日曜'),
         h('button', { class: st.weekStart === 1 ? 'on' : '', onclick: () => { st.weekStart = 1; void repo.persist(); draw(); } }, '月曜')),
+
+      h('h3', null, 'N日のひと区切り（サイクル）'),
+      h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは**読むとき**だけなので、日数や数え始める日を変えても記録は書き換わりません。'),
+      cycleBlock(ctx, draw),
 
       h('h3', null, '📅 Google カレンダー'),
       h('p', { class: 'hint' }, '時刻つきの記録だけを出します（枡だけの記録は出しません）。つなぎ方は ライフログと同じ Edge Function 方式（SPEC.md §7）。関数 koma-gcal はまだ作っていません（Phase 4）＝ここは入れ物だけ。'),
