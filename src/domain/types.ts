@@ -53,10 +53,14 @@ export interface Track {
 export type Priority = -1 | 0 | 1;
 export interface Photo { path: string; thumb?: string; }
 
+/** ⏭ 先送りの1回＝「この記録は from の日にあったが、at の時に後ろの日へ動かした」。
+ *  ⚠ 動かした先は持たない＝次の1回の from（最後の1回なら いまの date）から読める（導出値は保存しない） */
+export interface Postpone { from: YMD; at: ISO; }
+
 export interface Entry {
   id: string;
   trackId: string;
-  date: YMD;                   // やる日／食べた日（並べる軸）
+  date: YMD;                   // やる日／食べた日（並べる軸）。⏭ 先送りで動くのはこの列
   slotKey: string | null;      // 人が選んだ枡（null＝時刻から決める。⚠ 人の選択は自動で上書きしない）
   planStart: Minute | null;    // 予定の時刻
   planEnd: Minute | null;
@@ -68,6 +72,9 @@ export interface Entry {
   doneAt: ISO | null;          // ✅ 済んだ時刻（消さずに残す）
   skippedAt: ISO | null;       // 🚫 やらないと決めた時刻（✅ と両立しない）
   insteadOfId: string | null;  // 🔀 どの記録の「代わりに」やったか（印は代わりの側の1列だけ）
+  /** ⏭ 先送りの履歴（古い順）。省略・空＝一度も動かしていない。
+   *  ⚠ 「日付を直す」（打ち間違いの訂正）では積まない＝先送りと訂正は意味が違う */
+  postponed?: Postpone[];
   title: string;
   note: string | null;
   priority: Priority;          // 1=高／0=ふつう／-1=低

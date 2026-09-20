@@ -9,6 +9,7 @@ import type { Repo } from './repo';
 import { addDays, dowOf, DOW_JA } from '../domain/dates';
 import { bucketOf, durationOf, fmtDur, fmtMin } from '../domain/slots';
 import { gapLine, fmtGapStats } from '../domain/gap';
+import { postponeCount, fmtPostpone } from '../domain/postpone';
 
 export interface Review { generatedAt: string; from: YMD; to: YMD; days: number; text: string; }
 
@@ -27,7 +28,7 @@ function itemText(repo: Repo, t: Track, e: Entry): string {
   const inst = repo.insteadFor(e.id); const of = e.insteadOfId ? repo.entry(e.insteadOfId) : undefined;
   return [
     mark, repo.isRunning(e) ? '⏵進行中' : '', e.title === t.name ? '' : e.title, when, dur ? `⏱${fmtDur(dur)}` : '', origin, yen ? `¥${yen.toLocaleString()}` : '',
-    e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.photos.length ? `📷${e.photos.length}` : '', gapLine(e),
+    e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.photos.length ? `📷${e.photos.length}` : '', gapLine(e), fmtPostpone(e) ? `⏭ ${fmtPostpone(e)}` : '',
     inst ? `→代わりに ${inst.title}` : '', of ? `（${of.title} の代わり）` : '', e.note ? `「${clip(e.note)}」` : '',
   ].filter(Boolean).join(' ');
 }
@@ -37,6 +38,7 @@ export function buildReview(repo: Repo, today: YMD, days = 7): Review {
   out.push(`# コマ 振り返り ${from}〜${today}（${days}日・作成 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}Z）`);
   out.push('印: ✅やった 🚫今日は無し（連続は切れない） ◻️まだ ⏵進行中 🔁繰り返しから ❗重要 ⏱長さ 🏠手作り 🏪中食 🍴外食。時刻は 実際（無ければ「予定」）。');
   out.push('ズレ＝予定と実際の差。予定と実際の**両方がある記録だけ**を比べた（片方しか無い記録は数に入っていない）。');
+  out.push('⏭ 先送り＝やる日を後ろへ動かした記録。「もともとの日 から N回先送り（M日）」＝いま出ている日ではなく、最初はその日のつもりだった。');
   for (let d = today; d >= from; d = addDays(d, -1)) {
     const lines: string[] = [];
     for (const t of tracks) {
@@ -59,6 +61,8 @@ export function buildReview(repo: Repo, today: YMD, days = 7): Review {
     if (t.kind === 'meal') { const es = repo.entriesFor(t.id, from, today); const c = (o: string) => es.filter((e) => e.payload.origin === o).length; parts.push(`🏠${c('home')} 🏪${c('store')} 🍴${c('out')}`); }
     if (t.kind === 'receipt') { const yen = repo.entriesFor(t.id, from, today).reduce((a, e) => a + (Number((e.payload.receipt as { total?: number } | undefined)?.total) || 0), 0); if (yen) parts.push(`💴¥${yen.toLocaleString()}`); }
     if (s.ghosts) parts.push(`🔁未確認${s.ghosts}`);
+    const pp = repo.entriesFor(t.id, from, today).filter((e) => postponeCount(e) > 0);
+    if (pp.length) parts.push(`⏭先送り${pp.length}件（のべ${pp.reduce((a, e) => a + postponeCount(e), 0)}回）`);
     const gp = repo.gapStats(t.id, from, today);
     const gparts = [
       gp.start.count ? `始まり ${fmtGapStats(gp.start, 'start')}` : '',

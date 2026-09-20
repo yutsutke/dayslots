@@ -123,6 +123,18 @@ export class Repo {
     if (on) patch.doneAt = null;
     return this.updateEntry(id, patch);
   }
+  /** ⏭ 先送り＝やる日を後ろへ動かし、もともとの日を履歴に積む（消さない）。
+   *  ⚠ まだやっていない記録だけ＝✅ や 🚫 が立っているものは、先に印を外してから（黙って印を消さない＝憲法4条）
+   *  ⚠ 後ろへだけ。前に戻す・打ち間違いを直すのは記録の板で日付を直す＝**履歴に積まない**（先送りと訂正は意味が違う）
+   *  ⚠ 🔁 から生まれた記録も動かせる。回の印（ruleId・ruleDate）は触らないので、元の日に二重には作られない */
+  postpone(id: string, to: YMD): Entry {
+    const e = this.mustEntry(id);
+    if (this.track(e.trackId).features.daily) throw new Error('一日一回の種目は先送りできません（その日の1件なので、動かす先にもう1件ある）');
+    if (e.doneAt) throw new Error('済んだ記録は先送りできません（✅ を外してから）');
+    if (e.skippedAt) throw new Error('「やらない」と決めた記録は先送りできません（🚫 を外してから）');
+    if (to <= e.date) throw new Error('先送りは後ろの日にだけ。前に戻すときは日付を直してください');
+    return this.updateEntry(id, { date: to, postponed: [...(e.postponed ?? []), { from: e.date, at: nowIso() }] });
+  }
   /** 🔀 代わりにこれをやった */
   doInstead(ofId: string, title: string): Entry {
     const src = this.mustEntry(ofId);

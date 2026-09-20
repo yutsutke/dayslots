@@ -18,11 +18,12 @@ import { daysBetween } from '../domain/dates';
 import { dayStartLabel, switchMinute } from '../domain/viewday';
 import { getSunPlace, displaySlots } from '../domain/slots';
 import { gapLine, fmtGapStats } from '../domain/gap';
+import { postponeCount, fmtPostpone } from '../domain/postpone';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v21';
+export const BUILD = 'v22';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -304,6 +305,9 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
     ? [`✅ ${s.done}`, `🚫 ${s.skipped}`, ...(isDaily(track) ? [] : [`まだ ${s.open}`]), `🔁 ${s.ghosts}`]
     : [`${track.icon} ${s.total} 件`, `🔁 ${s.ghosts}`];
   if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, repo.viewToday())} 日`);
+  // ⏭ この範囲にある記録のうち、やる日を動かしたことがあるもの（何度も延びているものに気づくため）
+  const pp = repo.entriesFor(track.id, from, to).filter((e) => postponeCount(e) > 0);
+  if (pp.length) parts.push(`⏭ 先送り ${pp.length}`);
   const ds = repo.durationStats(track.id, from, to);
   if (ds.total > 0) parts.push(`⏱ 合計 ${fmtDur(ds.total)} · 平均 ${fmtDur(ds.avg)}/回（${ds.count}回）`);
   // 予定とのズレ＝予定と実際の両方がある記録だけ。無い種目（食事など）には何も出ない。⚖️ で隠せる
@@ -497,7 +501,9 @@ function marks(e: Entry, m: number | null): HTMLElement {
   const origin = e.payload.origin as string | undefined;
   return h('span', { class: 'marks' },
     repo.isRunning(e) ? '⏵' : e.actualEnd != null && e.actualStart == null ? '⏹' : '',
-    e.priority > 0 ? '❗' : '', e.ruleId ? '🔁' : '', e.templateId ? '⭐' : '', e.calendar && m != null ? '📅' : '',
+    e.priority > 0 ? '❗' : '',
+    postponeCount(e) ? h('span', { title: fmtPostpone(e) }, postponeCount(e) > 1 ? `⏭${postponeCount(e)}` : '⏭') : '',
+    e.ruleId ? '🔁' : '', e.templateId ? '⭐' : '', e.calendar && m != null ? '📅' : '',
     origin === 'home' ? '🏠' : origin === 'store' ? '🏪' : origin === 'out' ? '🍴' : '', e.photos.length && !show().photos ? `📷${e.photos.length}` : '',
     (e.payload.ai as { status?: string } | undefined)?.status === 'pending' ? '🤖…' : (e.payload.ai as { status?: string } | undefined)?.status === 'error' ? '🤖⚠' : '');
 }
