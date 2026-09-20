@@ -1,15 +1,35 @@
 /* 入力の板＝記録／⭐ いつもの／🔁 繰り返し */
 import { h, modal, timeInput, field, hint, fill, type Child } from './dom';
 import type { Ctx } from './app';
-import type { Entry, Track, Template, Rule, Freq, Priority } from '../domain/types';
+import type { Entry, Track, Template, Rule, Freq, Priority, YMD } from '../domain/types';
 import { bucketOf, fmtMin, fmtDur } from '../domain/slots';
 import { FREQ_LABEL, describeRule } from '../domain/recur';
-import { DOW_JA } from '../domain/dates';
+import { DOW_JA, addDays } from '../domain/dates';
+import { postponeCount, postponeChain, fmtPostpone } from '../domain/postpone';
 import { eventFor } from '../sync/calendar';
 import { uid } from '../app/repo';
 import { nowMinute } from '../domain/dates';
 import { aiConfigured, readReceipt, readMeal, type ReceiptRead } from '../ai/byok';
 import { pickImages, importPhoto, imageOf, delBlob, urlOf } from './photos';
+
+/** ⏭ 先送り＝やる日を後ろへ動かす欄。過ぎた記録の「明日」は**今日から**数える（過ぎた日の明日もまだ過去なので） */
+function postponeField(ctx: Ctx, d: Entry, close: () => void): HTMLElement {
+  const { repo } = ctx;
+  const today = repo.viewToday();
+  const base = d.date > today ? d.date : today;
+  const go = (to: YMD) => {
+    repo.upsertEntry(d);
+    try { repo.postpone(d.id, to); } catch (err) { alert((err as Error).message); return; }
+    close(); ctx.render();
+  };
+  const b = (label: string, days: number) => h('button', { title: `${addDays(base, days)} へ`, onclick: () => go(addDays(base, days)) }, label);
+  const n = postponeCount(d);
+  return field('⏭ 先送り', h('div', { class: 'btns' },
+    b('明日', 1), b('3日後', 3), b('来週', 7),
+    h('button', { onclick: () => { const v = prompt('いつに先送りしますか？（YYYY-MM-DD）', addDays(base, 1)); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) go(v.trim()); } }, '日付…')),
+    n ? hint(`${fmtPostpone(d)} ／ ${postponeChain(d).map((s) => s.slice(5)).join(' → ')}`)
+      : hint('やる日を後ろへ動かします。もともとの日は残るので、何度先送りしたかが後から分かります（日付の打ち間違いを直すときは、上の日付を直してください＝履歴には積みません）'));
+}
 
 const slotButtons = (track: Track, get: () => string | null, set: (k: string | null) => void, autoLabel: string) =>
   h('div', { class: 'btns' },
@@ -68,6 +88,9 @@ export function openEntryForm(ctx: Ctx, track: Track, entry: Entry | null, init:
         h('button', { class: d.skippedAt ? 'on' : '', title: '今日は無し（🔥 連続日数は切れない・第3の状態）', onclick: () => { d.skippedAt = d.skippedAt ? null : new Date().toISOString(); if (d.skippedAt) d.doneAt = null; draw(); } }, '🚫 今日は無し'),
         !isNew ? h('button', { title: '元は 🚫 で閉じ、代わりにやったことを ✅ で足す', onclick: () => { const t = prompt('代わりに何をやりましたか？'); if (!t) return; repo.upsertEntry(d); repo.doInstead(d.id, t); m.close(); ctx.render(); } }, '🔀 代わりに…') : null),
         priorityButtons(() => d.priority, (p) => { d.priority = p; draw(); })));
+      // ⏭ 先送り＝やる日を後ろへ動かす。板の下書きを先に保存してから動かす（🔀 と同じ順）。
+      // 一日一回の種目はその日の1件なので出さない（台帳側でも断る）
+      if (!isNew && !track.features.daily) out.push(postponeField(ctx, d, () => m.close()));
     }
     if (track.kind === 'meal') out.push(field('出どころ', originButtons(() => d.payload.origin, (v) => { d.payload = { ...d.payload, origin: v }; draw(); })));
     if (track.features.photos) out.push(photoField(ctx, track, d, draw));
