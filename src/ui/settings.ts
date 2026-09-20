@@ -9,7 +9,7 @@ import { cycleStart, cycleEnd, cycleIndex, validateCycle, MIN_CYCLE, MAX_CYCLE }
 import { GESTURES, GESTURE_LABEL, GESTURE_DEF, sayFor, validateGestures, type GestureRule } from '../domain/gesture';
 import { GoogleViaEdgeFunction, pending, syncAll } from '../sync/calendar';
 import { seedDb } from '../store/seed';
-import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '../ai/byok';
+import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, PROVIDERS, pingAi, listModels, type AiProvider, type AiSettings, type ModelChoice } from '../ai/byok';
 import { DriveTarget, type StorageKind } from '../sync/target';
 import { exportSqlite } from '../export/sqlite';
 import { syncer } from './app';
@@ -54,6 +54,42 @@ function gestureBlock(ctx: Ctx, draw: () => void): HTMLElement {
     hint('入れる文は、合図の欄に打つのと同じもの＝「開始」「終了」「30分」「座禅開始」など。種目タブを開いていれば名前は省けます'));
 }
 
+/** 🤖 AI の設定＝呼び先・鍵・モデル。モデルは**先方に聞いて選ぶ**（決め打ちの一覧を持たない＝古くなるから）。
+ *  一覧を聞きに行くのは人が押した時だけ。選んでも入るのは「ただの文字列」＝一覧に無いモデルも手で書ける */
+let modelList: ModelChoice[] | null = null;   // 押して取れた一覧（画面を閉じるまで覚えておく）
+let modelNote = '';
+function aiBlock(ctx: Ctx, draw: () => void): HTMLElement {
+  const { repo } = ctx;
+  const st = repo.db.settings;
+  const cur: AiSettings = st.ai ?? { provider: 'anthropic', key: '', model: '' };
+  const put = (patch: Partial<AiSettings>) => { st.ai = { ...cur, ...patch }; void repo.persist(); };
+  const p = PROVIDERS[cur.provider];
+  return h('div', null,
+    field('呼び先', h('select', { onchange: (e: Event) => {
+      const v = (e.target as HTMLSelectElement).value as AiProvider;
+      // 呼び先を変えたらモデルもその先の既定へ（前の先のモデル名は通じない）。一覧も作り直す
+      modelList = null; modelNote = '';
+      put({ provider: v, model: AI_DEFAULT_MODEL[v] }); draw();
+    } }, (Object.keys(AI_PROVIDER_LABEL) as AiProvider[]).map((k) => h('option', { value: k, selected: cur.provider === k }, AI_PROVIDER_LABEL[k])))),
+    field('API キー', h('input', { type: 'password', value: cur.key, placeholder: p.keyHint, oninput: (e: Event) => put({ key: (e.target as HTMLInputElement).value.trim() }) })),
+    field('モデル', h('input', { value: cur.model, placeholder: p.defaultModel, oninput: (e: Event) => put({ model: (e.target as HTMLInputElement).value.trim() }) }),
+      hint(`空なら既定（${p.defaultModel}）。一覧に無いモデル名も手で書けます`)),
+    field('モデルの一覧', h('div', { class: 'inline' },
+      h('button', { onclick: async () => {
+        modelNote = '聞いています…'; draw();
+        try { modelList = await listModels(st.ai ?? cur); modelNote = `${modelList.length} 件（${new Date().toTimeString().slice(0, 5)} 現在）`; }
+        catch (e) { modelList = null; modelNote = `⚠ ${(e as Error).message}`; }
+        draw();
+      } }, '一覧を取りに行く'),
+      modelList ? h('select', { onchange: (e: Event) => { put({ model: (e.target as HTMLSelectElement).value }); draw(); } },
+        h('option', { value: cur.model }, '— 選ぶ —'),
+        modelList.map((m) => h('option', { value: m.id, selected: m.id === cur.model }, m.label === m.id ? m.id : `${m.label}（${m.id}）`))) : null),
+      hint(modelNote || (PROVIDERS[cur.provider].models.needsKey ? 'この呼び先は一覧にも鍵が要ります。押した時だけ聞きに行きます（勝手には行きません）' : '鍵なしで聞けます。押した時だけ聞きに行きます'))),
+    h('div', { class: 'btns' },
+      h('button', { onclick: async () => { if (!st.ai?.key) { alert('鍵を入れてください'); return; } try { alert(`接続 OK: ${await pingAi(st.ai)}`); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '接続確認'),
+      st.ai?.key ? h('button', { class: 'danger', onclick: () => { if (confirm('鍵をこの端末から消しますか？')) { st.ai = undefined; modelList = null; modelNote = ''; void repo.persist(); draw(); } } }, '鍵を消す') : null));
+}
+
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
   const body = h('div');
@@ -82,11 +118,11 @@ export function openSettings(ctx: Ctx): void {
         h('button', { class: st.weekStart === 1 ? 'on' : '', onclick: () => { st.weekStart = 1; void repo.persist(); draw(); } }, '月曜')),
 
       h('h3', null, 'N日のひと区切り（サイクル）'),
-      h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは**読むとき**だけなので、日数や数え始める日を変えても記録は書き換わりません。'),
+      h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは読むときだけなので、日数や数え始める日を変えても記録は書き換わりません。'),
       cycleBlock(ctx, draw),
 
       h('h3', null, '📷 手の形で合図'),
-      h('p', { class: 'hint' }, '写真を1枚えらぶと、手の形を見て、ここで決めた合図の文を入れます（🤖 本人の鍵が要ります）。写真は**残しません**＝手の形は命令であって記録ではないので。分からなかったときは何も入れません。'),
+      h('p', { class: 'hint' }, '写真を1枚えらぶと、手の形を見て、ここで決めた合図の文を入れます（🤖 本人の鍵が要ります）。写真は残しません（手の形は命令であって、記録ではないので）。分からなかったときは何も入れません。'),
       gestureBlock(ctx, draw),
 
       h('h3', null, '📅 Google カレンダー'),
@@ -115,13 +151,9 @@ export function openSettings(ctx: Ctx): void {
       h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.notify ?? false, onchange: async (e: Event) => { const on = (e.target as HTMLInputElement).checked; if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') { const p = await Notification.requestPermission(); if (p !== 'granted') { (e.target as HTMLInputElement).checked = false; alert('通知が許可されませんでした'); return; } } st.notify = on; void repo.persist(); } }), ' 長く走りすぎたら OS の通知でも知らせる', hint('上限は種目ごと（✏️ の「進行中の上限」・既定 180 分）。画面の上の1行には設定に関係なく出る')),
 
       h('h3', null, '🤖 AI（BYOK＝本人の鍵）'),
-      h('p', { class: 'hint' }, '🧾 レシート・🍽 食事の写真を読ませるための鍵。鍵は**この端末の中だけ**に置き、AI の会社（Anthropic か Google）へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。'),
-      field('呼び先', h('select', { onchange: (e: Event) => { const p = (e.target as HTMLSelectElement).value as AiProvider; st.ai = { provider: p, key: st.ai?.key ?? '', model: AI_DEFAULT_MODEL[p] }; void repo.persist(); draw(); } },
-        (Object.keys(AI_PROVIDER_LABEL) as AiProvider[]).map((p) => h('option', { value: p, selected: (st.ai?.provider ?? 'anthropic') === p }, AI_PROVIDER_LABEL[p])))),
-      field('API キー', h('input', { type: 'password', value: st.ai?.key ?? '', placeholder: 'sk-ant-… / AIza…', oninput: (e: Event) => { st.ai = { provider: st.ai?.provider ?? 'anthropic', model: st.ai?.model ?? AI_DEFAULT_MODEL.anthropic, key: (e.target as HTMLInputElement).value.trim() }; void repo.persist(); } })),
-      field('モデル', h('input', { value: st.ai?.model ?? AI_DEFAULT_MODEL.anthropic, oninput: (e: Event) => { if (st.ai) { st.ai.model = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } } }), hint('空なら既定（Anthropic: claude-sonnet-5 ／ Gemini: gemini-2.5-flash）')),
-      h('div', { class: 'btns' }, h('button', { onclick: async () => { if (!st.ai?.key) { alert('鍵を入れてください'); return; } try { alert(`接続 OK: ${await pingAi(st.ai)}`); } catch (e) { alert(`⚠ ${(e as Error).message}`); } } }, '接続確認'),
-        st.ai?.key ? h('button', { class: 'danger', onclick: () => { if (confirm('鍵をこの端末から消しますか？')) { st.ai = undefined; void repo.persist(); draw(); } } }, '鍵を消す') : null),
+      h('p', { class: 'hint' }, '🧾 レシート・🍽 食事・📷 手の形 の写真を読ませるための鍵。鍵はこの端末の中だけに置き、選んだ会社へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。このアプリ専用に、使用上限つきの鍵を作るのがおすすめです。'),
+      h('p', { class: 'hint' }, '⚠ OpenAI へ直接はつなげません（ブラウザからの呼び出しを許していないため）。GPT を使いたいときは OpenRouter を選び、モデルに「openai/…」を指定してください（1つの鍵で GPT・Claude・Gemini などを使えます）。'),
+      aiBlock(ctx, draw),
 
       h('h3', null, '🗓 休み（有給・夏休みなど）'),
       h('p', { class: 'hint' }, '🔁 の「平日」「休日」「週の最初の平日」の判定に効きます（土日と日本の祝日は入れなくてよい）。1行に1日 YYYY-MM-DD。'),
