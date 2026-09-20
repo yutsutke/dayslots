@@ -142,11 +142,11 @@ export interface Rule {
 export interface CalendarMapRow { entryId: string; provider: 'google'; eventId: string; contentHash: string; syncedAt: ISO; }
 
 /** 升目に何を見せるか（🕐 開始時刻／⏱ 何分やった／💬 コメント／📷 写真）＝上の帯のアイコンで切り替える */
-export interface ShowFlags { time: boolean; duration: boolean; note: boolean; photos: boolean; }
+export interface ShowFlags { time: boolean; duration: boolean; note: boolean; photos: boolean; gap: boolean; }
 
 export interface Settings {
   weekStart: 0 | 1;            // 週の始まり 0=日曜／1=月曜
-  show?: ShowFlags;            // 省略＝既定（時刻・分・写真は出す、コメントは出さない）
+  show?: ShowFlags;            // 省略＝既定（時刻・分・写真・ズレは出す、コメントは出さない）
   ai?: { provider: 'anthropic' | 'gemini'; key: string; model: string }; // 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true
   skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
