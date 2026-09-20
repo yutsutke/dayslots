@@ -19,16 +19,17 @@ import { dayStartLabel, switchMinute } from '../domain/viewday';
 import { getSunPlace, displaySlots } from '../domain/slots';
 import { gapLine, fmtGapStats } from '../domain/gap';
 import { postponeCount, fmtPostpone } from '../domain/postpone';
+import { cycleStart, cycleIndex } from '../domain/cycle';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v22';
+export const BUILD = 'v23';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
-type View = 'week' | 'day' | 'month' | 'list';
+type View = 'week' | 'day' | 'month' | 'list' | 'cycle';
 type ListFilter = 'open' | 'done' | 'skip' | 'all';
 let repo: Repo;
 let root: HTMLElement;
@@ -62,6 +63,8 @@ function notifyOverdue(): void {
 }
 const ctx = (): Ctx => ({ repo, render, anchor: () => state.anchor });
 const isDaily = (t: Track) => Boolean(t.features.daily);
+/** N日のひと区切り＝日数と数え始める日。まだ決めていなければ 3日・今日から */
+const cyc = (): { days: number; from: YMD } => repo.db.settings.cycle ?? { days: 3, from: repo.viewToday() };
 const SHOW_DEF: ShowFlags = { time: true, duration: true, note: false, photos: true, gap: true };
 const show = (): ShowFlags => ({ ...SHOW_DEF, ...(repo.db.settings.show ?? {}) });
 /** 升目に出すもの（🕐 何時から／⏱ 何分／💬 コメント／📷 写真／⚖️ 予定とのズレ）＝押して切り替える。端末の設定として残る */
@@ -83,6 +86,9 @@ function extras(e: Entry, small = false, gapHere = true): (HTMLElement | null)[]
   ];
 }
 
+/** from〜to の日を並べる＝升目の縦。週は7日、サイクルは N日（長さは範囲から数える＝固定しない） */
+const daysOf = (from: YMD, to: YMD): YMD[] => Array.from({ length: daysBetween(from, to) + 1 }, (_, i) => addDays(from, i));
+
 /** 見ている範囲。月＝月初を含む週の頭から6週（42日）＝升目と同じ */
 function range(): [YMD, YMD] {
   if (state.view === 'day') return [state.anchor, state.anchor];
@@ -93,6 +99,7 @@ function range(): [YMD, YMD] {
     for (const e of repo.db.entries) { if (e.date > hi) hi = e.date; if (state.listAll && e.date < lo) lo = e.date; }
     return [lo, hi];
   }
+  if (state.view === 'cycle') { const c = cyc(); const a = cycleStart(state.anchor, c.from, c.days); return [a, addDays(a, c.days - 1)]; }
   if (state.view === 'month') { const a = weekStartOf(state.anchor.slice(0, 7) + '-01', repo.db.settings.weekStart); return [a, addDays(a, 41)]; }
   const a = weekStartOf(state.anchor, repo.db.settings.weekStart);
   return [a, addDays(a, 6)];
@@ -113,13 +120,14 @@ export function render(): void {
   if (state.view !== 'list') repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）。リストは広い範囲を見るだけなので作らない
   const body = state.view === 'list' ? listView(track, from, to) : state.view === 'day' ? dayList(track, from)
     : state.view === 'month' ? monthGrid(track, from)
-    : isDaily(track) ? dailyWeek(track, from) : weekGrid(track, from, to);
+    : isDaily(track) ? dailyWeek(track, from, to) : weekGrid(track, from, to);
   root.replaceChildren(header(track, from, to), body, footer());
 }
 
 function move(dir: 1 | -1): void {
   if (state.view === 'list') return;
-  state.anchor = state.view === 'day' ? addDays(state.anchor, dir) : state.view === 'month' ? addMonths(state.anchor, dir) : addDays(state.anchor, 7 * dir);
+  state.anchor = state.view === 'day' ? addDays(state.anchor, dir) : state.view === 'month' ? addMonths(state.anchor, dir)
+    : state.view === 'cycle' ? addDays(state.anchor, cyc().days * dir) : addDays(state.anchor, 7 * dir);
   render();
 }
 
@@ -132,10 +140,15 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
       h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
     h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙'));
-  const label = state.view === 'list' ? (state.listAll ? 'ぜんぶ' : '直近90日〜') : state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7) : `${from} 〜 ${to.slice(5)}`;
+  const c = cyc();
+  const label = state.view === 'list' ? (state.listAll ? 'ぜんぶ' : '直近90日〜') : state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7)
+    : state.view === 'cycle' ? `${from} 〜 ${to.slice(5)}（${c.days}日・${cycleIndex(from, c.from, c.days)}周目）` : `${from} 〜 ${to.slice(5)}`;
   const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },
-    h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'), seg('month', '月'), seg('list', '📋 リスト')),
+    h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'),
+      // サイクル＝初めて押したときに「3日・今日から」を書き留める（書き留めないと基準日が毎日ずれて「何周目」が変わってしまう）
+      h('button', { class: state.view === 'cycle' ? 'on' : '', title: `${c.days}日をひと区切りにして見る（⚙ で日数と数え始める日を変える）`, onclick: () => { if (!repo.db.settings.cycle) { repo.db.settings.cycle = { days: c.days, from: c.from }; void repo.persist(); } state.view = 'cycle'; render(); } }, `${c.days}日`),
+      seg('month', '月'), seg('list', '📋 リスト')),
     h('button', { onclick: () => move(-1) }, '◀'),
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
@@ -263,14 +276,14 @@ function allReviewBar(from: YMD, to: YMD): HTMLElement {
     return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
   });
   const pend = pending(repo).length;
-  const title = state.view === 'week' ? '🗓 週の見直し（すべて）' : state.view === 'month' ? '🗓 月の見直し（すべて）' : '📋 この日（すべて）';
+  const title = state.view === 'week' ? '🗓 週の見直し（すべて）' : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し（すべて）` : state.view === 'month' ? '🗓 月の見直し（すべて）' : '📋 この日（すべて）';
   return h('div', { class: 'review' }, h('b', null, title), h('span', { class: 'sp' }), parts,
     pend ? h('span', { class: 'warn' }, `📅 未送信 ${pend}`) : null);
 }
 
 // ── ⊞ すべて（週＝縦7日 × 横＝種目） ─────────────────────────
 function allWeek(from: YMD, to: YMD): HTMLElement {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
+  const days = daysOf(from, to);
   const today = repo.viewToday();
   const go = (t: Track, d: YMD) => { state.trackId = t.id; state.view = 'day'; state.anchor = d; render(); };
   const cell = (t: Track, d: YMD): HTMLElement => {
@@ -324,7 +337,7 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
     parts.push(`🏠 ${c('home')} 🏪 ${c('store')} 🍴 ${c('out')}`);
   }
   const pend = pending(repo).length;
-  const title = state.view === 'week' ? '🗓 週の見直し' : state.view === 'month' ? '🗓 月の見直し' : '📋 この日';
+  const title = state.view === 'week' ? '🗓 週の見直し' : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し` : state.view === 'month' ? '🗓 月の見直し' : '📋 この日';
   return h('div', { class: 'review' },
     h('b', null, title), h('span', { class: 'sp' }),
     parts.map((p) => h('span', null, p)),
@@ -333,7 +346,7 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
 
 // ── 週（枡の升目） ─────────────────────────────────────────
 function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
-  const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
+  const days = daysOf(from, to);
   const today = repo.viewToday();
   const es = repo.entriesFor(track.id, from, to);
   const gs = repo.ghostsFor(track.id, from, to);
@@ -358,11 +371,11 @@ function dayDetail(e: Entry | undefined): string {
   const start = e.actualStart ?? e.planStart;
   return [f.time && start != null ? `${fmtMin(start)}〜` : '', f.duration && dur ? `⏱${fmtDur(dur)}` : '', f.note && e.note ? `💬 ${e.note}` : ''].filter(Boolean).join(' · ');
 }
-function dailyWeek(track: Track, from: YMD): HTMLElement {
+function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
   const today = repo.viewToday();
   return h('div', { class: 'day daily' },
     h('p', { class: 'hint' }, `印を押すと なし → ✅ → 🚫（今日は無し・連続は切れない） → なし。時刻やメモは「…」から。`),
-    Array.from({ length: 7 }, (_, i) => addDays(from, i)).map((d) => {
+    daysOf(from, to).map((d) => {
       const e = repo.dayEntry(track.id, d);
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
