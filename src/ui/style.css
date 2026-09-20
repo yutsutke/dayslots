@@ -68,7 +68,6 @@ table.grid tr.today th.dcol b { color: #f0883e; }
 .row .times { flex: 0 0 120px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .row .ttl { flex: 1; }
 .row .sub { display: block; }
-.row .times .gap { color: var(--dim); font-size: 11px; } /* ズレ＝予定と実際の差。記録には無い値なので、時刻より控えめに出す */
 
 /* 📋 リスト */
 .list > .inline { margin-bottom: 8px; }
@@ -202,6 +201,7 @@ table.slotsEd td .sub { display: block; font-size: 10px; }
 .toggles .tg { padding: 4px 6px; }
 .toggles .tg.off { opacity: .35; filter: grayscale(1); }
 .dur { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.gap { color: var(--dim); font-size: 11px; } /* ズレ＝予定と実際の差。記録には無い値なので、時刻より控えめに出す（折り返しは許す） */
 .note { color: var(--fg); opacity: .85; }
 .thumbs { display: flex; gap: 2px; flex-basis: 100%; }
 .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--line); }

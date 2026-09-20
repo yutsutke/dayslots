@@ -61,20 +61,22 @@ function notifyOverdue(): void {
 }
 const ctx = (): Ctx => ({ repo, render, anchor: () => state.anchor });
 const isDaily = (t: Track) => Boolean(t.features.daily);
-const SHOW_DEF: ShowFlags = { time: true, duration: true, note: false, photos: true };
+const SHOW_DEF: ShowFlags = { time: true, duration: true, note: false, photos: true, gap: true };
 const show = (): ShowFlags => ({ ...SHOW_DEF, ...(repo.db.settings.show ?? {}) });
-/** 升目に出すもの（🕐 何時から／⏱ 何分／💬 コメント／📷 写真）＝押して切り替える。端末の設定として残る */
+/** 升目に出すもの（🕐 何時から／⏱ 何分／💬 コメント／📷 写真／⚖️ 予定とのズレ）＝押して切り替える。端末の設定として残る */
 function viewToggles(): HTMLElement {
   const f = show();
   const b = (k: keyof ShowFlags, icon: string, title: string) =>
     h('button', { class: 'tg ' + (f[k] ? 'on' : 'off'), title: `${title}（押すと${f[k] ? '隠す' : '出す'}）`, onclick: () => { repo.db.settings.show = { ...f, [k]: !f[k] }; void repo.persist(); render(); } }, icon);
-  return h('span', { class: 'toggles', title: '升目に出すもの' }, b('time', '🕐', '何時から'), b('duration', '⏱', '何分やった'), b('note', '💬', 'コメント'), b('photos', '📷', '写真'));
+  return h('span', { class: 'toggles', title: '升目に出すもの' }, b('time', '🕐', '何時から'), b('duration', '⏱', '何分やった'), b('note', '💬', 'コメント'), b('photos', '📷', '写真'), b('gap', '⚖️', '予定とのズレ'));
 }
-/** 記録の下に出す小さな行＝⏱ 何分／💬 コメント／📷 写真（表示の切替に従う） */
-function extras(e: Entry, small = false): (HTMLElement | null)[] {
-  const f = show(); const dur = durationOf(e);
+/** 記録の下に出す小さな行＝⏱ 何分／💬 コメント／📷 写真／⚖️ ズレ（表示の切替に従う）。
+ *  gapHere＝false は 1日の行から。あちらはズレを左の時刻の列（予定・実際の真下）に出すので、ここで二重に出さない */
+function extras(e: Entry, small = false, gapHere = true): (HTMLElement | null)[] {
+  const f = show(); const dur = durationOf(e); const gap = gapHere && f.gap ? gapLine(e) : '';
   return [
     f.duration && dur != null && dur > 0 ? h('span', { class: 'dur' }, `⏱${fmtDur(dur)}`) : null,
+    gap ? h('span', { class: 'gap' }, gap) : null,
     f.note && e.note ? h('small', { class: 'sub note' }, `💬 ${e.note}`) : null,
     f.photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, small ? 1 : 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null,
   ];
@@ -304,11 +306,13 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
   if (isDaily(track)) parts.push(`🔥 連続 ${repo.streak(track.id, repo.viewToday())} 日`);
   const ds = repo.durationStats(track.id, from, to);
   if (ds.total > 0) parts.push(`⏱ 合計 ${fmtDur(ds.total)} · 平均 ${fmtDur(ds.avg)}/回（${ds.count}回）`);
-  // 予定とのズレ＝予定と実際の両方がある記録だけ。無い種目（食事など）には何も出ない
-  const gp = repo.gapStats(track.id, from, to);
-  if (gp.start.count) parts.push(`始まりのズレ ${fmtGapStats(gp.start, 'start')}`);
-  if (gp.dur.count) parts.push(`長さのズレ ${fmtGapStats(gp.dur, 'dur')}`);
-  if (gp.days.count) parts.push(`日のズレ ${fmtGapStats(gp.days, 'days')}`);
+  // 予定とのズレ＝予定と実際の両方がある記録だけ。無い種目（食事など）には何も出ない。⚖️ で隠せる
+  if (show().gap) {
+    const gp = repo.gapStats(track.id, from, to);
+    if (gp.start.count) parts.push(`始まりのズレ ${fmtGapStats(gp.start, 'start')}`);
+    if (gp.dur.count) parts.push(`長さのズレ ${fmtGapStats(gp.dur, 'dur')}`);
+    if (gp.days.count) parts.push(`日のズレ ${fmtGapStats(gp.days, 'days')}`);
+  }
   if (track.kind === 'receipt') { const yen = repo.entriesFor(track.id, from, to).reduce((a, e) => a + (Number((e.payload.receipt as { total?: number } | undefined)?.total) || 0), 0); if (yen) parts.push(`💴 ¥${yen.toLocaleString()}`); }
   if (track.kind === 'meal') {
     const es = repo.entriesFor(track.id, from, to);
@@ -542,14 +546,14 @@ function dayList(track: Track, d: YMD): HTMLElement {
 function row(track: Track, e: Entry, showTrack = false): HTMLElement {
   // 時刻があれば「HH:MM–HH:MM」。時刻が無くて長さだけなら「⏱30分」。両方あれば時刻＋⏱
   const span = (a: number | null, b: number | null, dur: number | null) => (a == null ? (dur != null ? `⏱${fmtDur(dur)}` : '—') : `${fmtMin(a)}${b != null ? '–' + fmtMin(b) : ''}${dur != null && b == null ? ` ⏱${fmtDur(dur)}` : ''}`);
-  const gap = gapLine(e, false); // 予定と実際が真上に並んでいるので「予定より」は省く
+  const gap = show().gap ? gapLine(e, false) : ''; // 予定と実際が真上に並んでいるので「予定より」は省く
   return h('div', { class: `row ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}`, onclick: () => openEntryForm(ctx(), track, e) },
     statusBox(track, e),
     h('div', { class: 'times' },
       h('div', null, h('small', null, '予定 '), span(e.planStart, e.planEnd, planDurationOf(e))),
       h('div', null, h('small', null, '実際 '), (e.actualDate && e.actualDate !== e.date ? e.actualDate.slice(5) + ' ' : '') + span(e.actualStart, e.actualEnd, actualDurationOf(e))),
       gap ? h('div', { class: 'gap' }, gap) : null), // ズレは引き算で出す＝保存していない
-    h('div', { class: 'ttl' }, showTrack ? h('span', { class: 'tkicon', title: track.name }, track.icon + ' ') : null, e.title, marks(e, primaryMinute(track, e)), ...extras(e)));
+    h('div', { class: 'ttl' }, showTrack ? h('span', { class: 'tkicon', title: track.name }, track.icon + ' ') : null, e.title, marks(e, primaryMinute(track, e)), ...extras(e, false, false)));
 }
 
 function footer(): HTMLElement {
