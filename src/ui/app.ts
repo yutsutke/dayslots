@@ -20,11 +20,14 @@ import { getSunPlace, displaySlots } from '../domain/slots';
 import { gapLine, fmtGapStats } from '../domain/gap';
 import { postponeCount, fmtPostpone } from '../domain/postpone';
 import { cycleStart, cycleIndex } from '../domain/cycle';
+import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/gesture';
+import { aiConfigured, readGesture } from '../ai/byok';
+import { pickImages, readOnlyImage } from './photos';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v23';
+export const BUILD = 'v24';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -227,6 +230,25 @@ function signalBar(track: Track | null): HTMLElement {
     mic!.classList.add('on'); inp.placeholder = '🎤 聞いています…';
     rec = listen((t) => { inp.value = t; }, (t) => { rec = null; mic!.classList.remove('on'); inp.value = t; go(t); }, (msg) => { rec = null; mic!.classList.remove('on'); lastToast = `⚠ ${msg}`; render(); });
   } }, '🎤') : null;
+  // 📷 手の形で合図＝写真を1枚選ぶ → AI が決まった顔ぶれから形を選ぶ → 前もって決めた文を、いつもの合図の道へ通す。
+  // ⚠ 写真は残さない（命令であって記録ではない）。分からなかったときは**何も入れない**（勝手に決めない）
+  const rules: GestureRule[] = (repo.db.settings.gestures as GestureRule[] | undefined) ?? GESTURE_DEF;
+  const cam = h('button', { class: 'mic', title: '📷 手の形で合図（⚙ で対応表を決める）', onclick: async () => {
+    const ai = repo.db.settings.ai;
+    if (!aiConfigured(ai)) { lastToast = '⚠ 📷 手の形を読むには ⚙ → 🤖 で本人の鍵が要ります'; render(); return; }
+    const [file] = await pickImages(false);
+    if (!file) return;
+    lastToast = '📷 手の形を読んでいます…'; render();
+    try {
+      const g = await readGesture(ai!, [await readOnlyImage(file)]);
+      if (g.gesture === 'unknown' || !g.sure) { lastToast = `📷 手の形が分かりませんでした${g.reason ? `（${g.reason}）` : ''}`; render(); return; }
+      const say = sayFor(rules, g.gesture);
+      if (!say) { lastToast = `📷 ${GESTURE_LABEL[g.gesture]} に合図を決めていません（⚙ → 📷 手の形で決められます）`; render(); return; }
+      const r = repo.applySignal(say, track?.id);
+      lastToast = `📷 ${GESTURE_LABEL[g.gesture]} → 「${say}」 ／ ${r.message}`;
+    } catch (err) { lastToast = `⚠ ${(err as Error).message}`; }
+    render();
+  } }, '📷');
   const run = repo.running(track?.id);
   // ▶ いまから計る＝種目を選んでいれば候補が1つならそのまま・複数なら選んでから。「すべて」なら なに を決めずに始める
   const start = () => {
@@ -239,7 +261,7 @@ function signalBar(track: Track | null): HTMLElement {
   return h('div', { class: 'sigBar' },
     h('button', { class: 'startBtn', title: track ? 'いまの時刻から計り始める' : 'いまの時刻から計り始める（なに は後で決められる）', onclick: start }, '▶ スタート'),
     h('button', { class: 'stopBtn', disabled: !canStop, title: 'いちばん新しい進行中を今で止める', onclick: () => { const msg = repo.stopLatest(track?.id); if (msg) lastToast = msg; render(); } }, '⏹ ストップ'),
-    h('span', { class: 'inline grow' }, inp, mic, h('button', { class: 'primary', onclick: () => go() }, '入れる')),
+    h('span', { class: 'inline grow' }, inp, mic, cam, h('button', { class: 'primary', onclick: () => go() }, '入れる')),
     run.length ? h('button', { class: 'runBtn ghost sm', title: '進行中の一覧', onclick: () => openRunning() }, `⏵ ${run.length}`) : null,
     lastToast ? h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast) : null);
 }

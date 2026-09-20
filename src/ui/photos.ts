@@ -59,6 +59,14 @@ export async function importPhoto(file: File): Promise<{ photo: Photo; image: Im
   await putBlob(id, full.blob);
   return { photo: { path: `idb:${id}`, thumb: thumb.dataUrl }, image: { mime: 'image/jpeg', b64: full.dataUrl.split(',')[1] } };
 }
+/** 読むだけの写真＝📷 手の形の合図など。**どこにも保存しない**（記録にも IndexedDB にも置かない＝憲法8条）。
+ *  手の形が分かれば足りるので、長辺 768 まで小さくして送る（速く・安く） */
+export async function readOnlyImage(file: File): Promise<ImageIn> {
+  const im = await loadImage(file);
+  const small = await shrink(im, 768, 0.8);
+  return { mime: 'image/jpeg', b64: small.dataUrl.split(',')[1] };
+}
+
 /** 記録の写真を AI に渡せる形にする（本体が無ければサムネで） */
 export async function imageOf(p: Photo): Promise<ImageIn | null> {
   if (p.path.startsWith('idb:')) {

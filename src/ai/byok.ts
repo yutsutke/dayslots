@@ -4,6 +4,8 @@
  *  ・返事は JSON だけを求め、こちらで検査してから使う（AI の出力を信用しない＝声で入れるカレンダー engine/batch.js と同じ）
  *  ・呼び先は2つ: Anthropic（ブラウザからの直接呼び出しには専用ヘッダが要る）／Google Gemini
  */
+import { GESTURES, checkGesture, type GestureRead } from '../domain/gesture';
+
 export type AiProvider = 'anthropic' | 'gemini';
 export interface AiSettings { provider: AiProvider; key: string; model: string; }
 export const AI_DEFAULT_MODEL: Record<AiProvider, string> = { anthropic: 'claude-sonnet-5', gemini: 'gemini-2.5-flash' };
@@ -37,6 +39,11 @@ const PROMPTS = {
 {"summary": 何を食べたかの1行, "detail": 料理ごとの説明, "items": [{"name": 料理名, "kind": 主食/主菜/副菜/汁/飲み物/デザート or null, "amount": 量の見た目 or null}],
  "origin": "home"(手作り)|"store"(中食)|"out"(外食)|null, "origin_reason": そう判断した理由, "note": 不確かな所 or null}
 ⚠ カロリー・栄養素・グラムなどの数値は絶対に書かない（写真からは分からない）。`,
+  gesture: `これは手の形（ハンドサイン）の写真です。次の顔ぶれのどれに当たるかを選び、JSON だけを返してください（説明文・コードフェンス不要）。
+one=人差し指を1本だけ立てている／two=人差し指と中指の2本（ピース）／three=指を3本立てている／fist=すべて握っている（グー）／open=すべて開いている（パー）／thumb=親指だけを立てている（いいね）／unknown=手が写っていない・どれとも言えない
+{"gesture": 上のどれか, "sure": true|false, "reason": そう見た理由 or null}
+⚠ 上の顔ぶれに無い言葉を作らない。迷ったら unknown にするか sure を false に。
+⚠ 手の形だけを見る。誰が写っているか・年齢・性別・背景など、人の特徴は一切書かない。`,
 } as const;
 export type ReadKind = keyof typeof PROMPTS;
 
@@ -101,6 +108,11 @@ export async function readReceipt(a: AiSettings, images: ImageIn[], hint = ''): 
 export async function readMeal(a: AiSettings, images: ImageIn[], hint = ''): Promise<MealRead> {
   return checkMeal(extractJson(await callRaw(a, PROMPTS.meal, images, hint)));
 }
+/** 📷 手の形を読む＝決まった顔ぶれから1つ選ばせる。顔ぶれに無い返事は unknown に落ちる（domain/gesture.ts が見張る） */
+export async function readGesture(a: AiSettings, images: ImageIn[]): Promise<{ gesture: GestureRead; sure: boolean; reason: string | null }> {
+  return checkGesture(extractJson(await callRaw(a, PROMPTS.gesture, images, '')));
+}
+
 /** 接続確認＝小さな返事を1回もらう */
 export async function pingAi(a: AiSettings): Promise<string> {
   const t = await callRaw(a, '「OK」とだけ返してください。', [], '');
