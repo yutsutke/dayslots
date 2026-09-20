@@ -6,6 +6,7 @@ import { KIND_LABEL } from '../domain/defaults';
 import { validateSlots, slotRange, startOf, fmtMin, setSunPlace } from '../domain/slots';
 import { sunTimes, describeSun, TOKYO } from '../domain/sun';
 import { cycleStart, cycleEnd, cycleIndex, validateCycle, MIN_CYCLE, MAX_CYCLE } from '../domain/cycle';
+import { GESTURES, GESTURE_LABEL, GESTURE_DEF, sayFor, validateGestures, type GestureRule } from '../domain/gesture';
 import { GoogleViaEdgeFunction, pending, syncAll } from '../sync/calendar';
 import { seedDb } from '../store/seed';
 import { AI_DEFAULT_MODEL, AI_PROVIDER_LABEL, pingAi, type AiProvider } from '../ai/byok';
@@ -33,6 +34,24 @@ function cycleBlock(ctx: Ctx, draw: () => void): HTMLElement {
     field('数え始める日', h('input', { type: 'date', value: c.from, onchange: (e: Event) => save(c.days, (e.target as HTMLInputElement).value) }),
       hint('この日を含む区切りが「1周目」。前の日も同じ幅で切ります（0周目・-1周目…）＝途中から数え始めても、それ以前が崩れません')),
     hint(`今日（${today}）は ${cycleIndex(today, c.from, c.days)}周目＝${cycleStart(today, c.from, c.days)} 〜 ${cycleEnd(today, c.from, c.days).slice(5)}`));
+}
+
+/** 📷 手の形 → 合図の文 の対応表。顔ぶれは決まっていて（AI に言葉を作らせない）、何の合図にするかだけを人が決める */
+function gestureBlock(ctx: Ctx, draw: () => void): HTMLElement {
+  const { repo } = ctx;
+  const rules = (repo.db.settings.gestures as GestureRule[] | undefined) ?? GESTURE_DEF;
+  const save = (g: (typeof GESTURES)[number], say: string) => {
+    const next = rules.filter((r) => r.gesture !== g);
+    if (say.trim()) next.push({ gesture: g, say: say.trim() });
+    const errs = validateGestures(next);
+    if (errs.length) { alert(errs.join('\n')); return; }
+    repo.db.settings.gestures = next.sort((a, b) => GESTURES.indexOf(a.gesture) - GESTURES.indexOf(b.gesture));
+    void repo.persist(); draw();
+  };
+  return h('div', null,
+    ...GESTURES.map((g) => field(GESTURE_LABEL[g],
+      h('input', { value: sayFor(rules, g) ?? '', placeholder: '（この形は使わない）', onchange: (e: Event) => save(g, (e.target as HTMLInputElement).value) }))),
+    hint('入れる文は、合図の欄に打つのと同じもの＝「開始」「終了」「30分」「座禅開始」など。種目タブを開いていれば名前は省けます'));
 }
 
 export function openSettings(ctx: Ctx): void {
@@ -65,6 +84,10 @@ export function openSettings(ctx: Ctx): void {
       h('h3', null, 'N日のひと区切り（サイクル）'),
       h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは**読むとき**だけなので、日数や数え始める日を変えても記録は書き換わりません。'),
       cycleBlock(ctx, draw),
+
+      h('h3', null, '📷 手の形で合図'),
+      h('p', { class: 'hint' }, '写真を1枚えらぶと、手の形を見て、ここで決めた合図の文を入れます（🤖 本人の鍵が要ります）。写真は**残しません**＝手の形は命令であって記録ではないので。分からなかったときは何も入れません。'),
+      gestureBlock(ctx, draw),
 
       h('h3', null, '📅 Google カレンダー'),
       h('p', { class: 'hint' }, '時刻つきの記録だけを出します（枡だけの記録は出しません）。つなぎ方は ライフログと同じ Edge Function 方式（SPEC.md §7）。関数 koma-gcal はまだ作っていません（Phase 4）＝ここは入れ物だけ。'),
