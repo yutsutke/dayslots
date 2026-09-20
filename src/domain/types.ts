@@ -160,7 +160,8 @@ export interface Settings {
   /** 📷 手の形 → 合図の文 の対応表（人が決める）。省略＝既定（☝ 1本＝開始／✌ 2本＝終了）。
    *  写真は残さない＝手の形は命令であって記録ではない */
   gestures?: { gesture: string; say: string }[];
-  ai?: { provider: 'anthropic' | 'gemini'; key: string; model: string }; // 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）
+  /** 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）。呼び先の顔ぶれは src/ai/byok.ts の PROVIDERS と揃える */
+  ai?: { provider: 'anthropic' | 'gemini' | 'openrouter'; key: string; model: string };
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true
   skipBreaksStreak?: boolean;  // 🚫 で 🔥 連続日数を切るか。省略＝false（🚫 は「今日は無し」＝第3の状態・Way of Life/Loop）
   notify?: boolean;            // 長時間走行を OS の通知でも知らせる（許可が要る）。省略＝false
