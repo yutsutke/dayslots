@@ -106,6 +106,24 @@ td.mcell .ghostTxt { color: var(--ghost); }
 td.mcell .box.big { display: block; margin: 2px auto; }
 td.mcell .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* 📆 長い期間＝縦7（曜日）× 横（週）の濃淡のマス目。たまにしかやらないことの「間隔」を見る */
+.spanWrap .btns { margin-bottom: 6px; }
+.spanWrap .spanLine { margin: 0 0 8px; color: var(--fg); font-size: 13px; }
+/* ⚠ width:max-content が要る＝無いと表が入れ物の幅に詰められ、升が縦棒に潰れる（2026-09-21 に踏んだ）。
+   はみ出したぶんは .gridWrap の横スクロールで見る（3か月は収まる・1年は流れる） */
+table.spanGrid { border-collapse: separate; border-spacing: 3px; width: max-content; table-layout: fixed; }
+table.spanGrid th.dw { width: 22px; padding-right: 2px; color: var(--dim); font-size: 10px; font-weight: 500; text-align: right; }
+table.spanGrid th.mo { color: var(--dim); font-size: 10px; font-weight: 500; text-align: left; padding-bottom: 2px; white-space: nowrap; }
+/* 升は小さく・押せる大きさは確保（1年＝53列でも横スクロールで足りる） */
+table.spanGrid td.sq { width: 13px; height: 13px; padding: 0; border-radius: 3px; background: var(--panel); border: 1px solid var(--line); cursor: pointer; }
+table.spanGrid td.sq.open { border-color: var(--dim); }          /* ◻️ まだ だけの日 */
+table.spanGrid td.sq.skip { background: var(--skip-bg); border-color: var(--skip); } /* 🚫 だけの日 */
+table.spanGrid td.sq.l1 { background: #1a4a2a; border-color: #1a4a2a; }  /* ✅ 1件 */
+table.spanGrid td.sq.l2 { background: #23703c; border-color: #23703c; }  /* ✅ 2件 */
+table.spanGrid td.sq.l3 { background: var(--ok); border-color: var(--ok); } /* ✅ 3件以上 */
+table.spanGrid td.sq.fut { opacity: .25; cursor: default; }      /* まだ来ていない日 */
+table.spanGrid td.sq.today { outline: 1px solid #f0883e; outline-offset: 1px; }
+
 /* ⊞ すべて（週＝日 × 種目） */
 table.allgrid td.cell.all { min-width: 110px; font-size: 12px; cursor: pointer; }
 table.allgrid td.cell.all.done { background: var(--ok-bg); border-color: var(--ok); }

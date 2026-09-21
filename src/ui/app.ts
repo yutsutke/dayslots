@@ -21,6 +21,7 @@ import { getSunPlace, displaySlots } from '../domain/slots';
 import { gapLine, fmtGapStats } from '../domain/gap';
 import { postponeCount, fmtPostpone } from '../domain/postpone';
 import { cycleStart, cycleIndex } from '../domain/cycle';
+import { SPANS, SPAN_LABEL, spanRange, spanWeeks, spanStats, type SpanMonths } from '../domain/span';
 import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/gesture';
 import { aiConfigured, readGesture } from '../ai/byok';
 import { pickImages, readOnlyImage } from './photos';
@@ -28,16 +29,16 @@ import { pickImages, readOnlyImage } from './photos';
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v26';
+export const BUILD = 'v27';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
 
-type View = 'week' | 'day' | 'month' | 'list' | 'cycle';
+type View = 'week' | 'day' | 'month' | 'list' | 'cycle' | 'span';
 type ListFilter = 'open' | 'done' | 'skip' | 'all';
 let repo: Repo;
 let root: HTMLElement;
-const state: { trackId: string; view: View; anchor: YMD; listFilter: ListFilter; listAll: boolean } = { trackId: '', view: 'week', anchor: todayYMD(), listFilter: 'open', listAll: false };
+const state: { trackId: string; view: View; anchor: YMD; listFilter: ListFilter; listAll: boolean; span: SpanMonths } = { trackId: '', view: 'week', anchor: todayYMD(), listFilter: 'open', listAll: false, span: 3 };
 
 export async function boot(el: HTMLElement): Promise<void> {
   root = el;
@@ -97,6 +98,10 @@ function extras(e: Entry, small = false, gapHere = true): (HTMLElement | null)[]
 /** from〜to の日を並べる＝升目の縦。週は7日、サイクルは N日（長さは範囲から数える＝固定しない） */
 const daysOf = (from: YMD, to: YMD): YMD[] => Array.from({ length: daysBetween(from, to) + 1 }, (_, i) => addDays(from, i));
 
+/** 広い範囲を見るだけの画面（📋 リスト・📆 長い期間）＝ここでは 🔁 自動の回を作らない。
+ *  ⚠ 1年の窓で作りに行かせると、見ただけで1年ぶんの記録が生まれる（見るだけの操作が書き込みになる） */
+const wide = (): boolean => state.view === 'list' || state.view === 'span';
+
 /** 見ている範囲。月＝月初を含む週の頭から6週（42日）＝升目と同じ */
 function range(): [YMD, YMD] {
   if (state.view === 'day') return [state.anchor, state.anchor];
@@ -107,6 +112,7 @@ function range(): [YMD, YMD] {
     for (const e of repo.db.entries) { if (e.date > hi) hi = e.date; if (state.listAll && e.date < lo) lo = e.date; }
     return [lo, hi];
   }
+  if (state.view === 'span') return spanRange(state.anchor, state.span, repo.db.settings.weekStart);
   if (state.view === 'cycle') { const c = cyc(); const a = cycleStart(state.anchor, c.from, c.days); return [a, addDays(a, c.days - 1)]; }
   if (state.view === 'month') { const a = weekStartOf(state.anchor.slice(0, 7) + '-01', repo.db.settings.weekStart); return [a, addDays(a, 41)]; }
   const a = weekStartOf(state.anchor, repo.db.settings.weekStart);
@@ -118,15 +124,15 @@ export function render(): void {
   if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   if (state.trackId === ALL) {
     const [from, to] = range();
-    if (state.view !== 'list') repo.ensureAuto(from, to);
-    const body = state.view === 'list' ? listView(null, from, to) : state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
+    if (!wide()) repo.ensureAuto(from, to);
+    const body = state.view === 'span' ? spanGrid(null, from, to) : state.view === 'list' ? listView(null, from, to) : state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
     root.replaceChildren(header(null, from, to), body, footer());
     return;
   }
   const track = repo.track(state.trackId);
   const [from, to] = range();
-  if (state.view !== 'list') repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）。リストは広い範囲を見るだけなので作らない
-  const body = state.view === 'list' ? listView(track, from, to) : state.view === 'day' ? dayList(track, from)
+  if (!wide()) repo.ensureAuto(from, to); // 🔁 自動の回を今日まで記録にする（未来には作らない）
+  const body = state.view === 'span' ? spanGrid(track, from, to) : state.view === 'list' ? listView(track, from, to) : state.view === 'day' ? dayList(track, from)
     : state.view === 'month' ? monthGrid(track, from)
     : isDaily(track) ? dailyWeek(track, from, to) : weekGrid(track, from, to);
   root.replaceChildren(header(track, from, to), body, footer());
@@ -135,7 +141,8 @@ export function render(): void {
 function move(dir: 1 | -1): void {
   if (state.view === 'list') return;
   state.anchor = state.view === 'day' ? addDays(state.anchor, dir) : state.view === 'month' ? addMonths(state.anchor, dir)
-    : state.view === 'cycle' ? addDays(state.anchor, cyc().days * dir) : addDays(state.anchor, 7 * dir);
+    : state.view === 'cycle' ? addDays(state.anchor, cyc().days * dir)
+    : state.view === 'span' ? addMonths(state.anchor, state.span * dir) : addDays(state.anchor, 7 * dir);
   render();
 }
 
@@ -164,13 +171,17 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
         ...foldBtns, gear);
   const c = cyc();
   const label = state.view === 'list' ? (state.listAll ? 'ぜんぶ' : '直近90日〜') : state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7)
-    : state.view === 'cycle' ? `${from} 〜 ${to.slice(5)}（${c.days}日・${cycleIndex(from, c.from, c.days)}周目）` : `${from} 〜 ${to.slice(5)}`;
+    : state.view === 'cycle' ? `${from} 〜 ${to.slice(5)}（${c.days}日・${cycleIndex(from, c.from, c.days)}周目）`
+    : state.view === 'span' ? `${from} 〜 ${to.slice(5)}（${SPAN_LABEL[state.span]}）` : `${from} 〜 ${to.slice(5)}`;
   const seg = (v: View, l: string) => h('button', { class: state.view === v ? 'on' : '', onclick: () => { state.view = v; render(); } }, l);
   const nav = h('div', { class: 'nav' },
     h('span', { class: 'seg' }, seg('day', '1日'), seg('week', '週'),
       // サイクル＝初めて押したときに「3日・今日から」を書き留める（書き留めないと基準日が毎日ずれて「何周目」が変わってしまう）
       h('button', { class: state.view === 'cycle' ? 'on' : '', title: `${c.days}日をひと区切りにして見る（⚙ で日数と数え始める日を変える）`, onclick: () => { if (!repo.db.settings.cycle) { repo.db.settings.cycle = { days: c.days, from: c.from }; void repo.persist(); } state.view = 'cycle'; render(); } }, `${c.days}日`),
-      seg('month', '月'), seg('list', '📋 リスト')),
+      seg('month', '月'),
+      // 📆 長い期間＝たまにしかやらないことのため。押している間は見出しに今の長さが出る
+      h('button', { class: state.view === 'span' ? 'on' : '', title: 'たまにしかやらないことを、3か月・半年・1年の幅で見る', onclick: () => { state.view = 'span'; render(); } }, `📆 ${SPAN_LABEL[state.span]}`),
+      seg('list', '📋 リスト')),
     h('button', { onclick: () => move(-1) }, '◀'),
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
@@ -319,7 +330,7 @@ function allReviewBar(from: YMD, to: YMD): HTMLElement {
     return h('span', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${body}`);
   });
   const pend = pending(repo).length;
-  const title = state.view === 'week' ? '🗓 週の見直し（すべて）' : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し（すべて）` : state.view === 'month' ? '🗓 月の見直し（すべて）' : '📋 この日（すべて）';
+  const title = state.view === 'week' ? '🗓 週の見直し（すべて）' : state.view === 'span' ? `🗓 ${SPAN_LABEL[state.span]}の見直し（すべて）` : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し（すべて）` : state.view === 'month' ? '🗓 月の見直し（すべて）' : '📋 この日（すべて）';
   return h('div', { class: 'review' }, h('b', null, title), h('span', { class: 'sp' }), parts,
     pend ? h('span', { class: 'warn' }, `📅 未送信 ${pend}`) : null);
 }
@@ -380,7 +391,7 @@ function reviewBar(track: Track, from: YMD, to: YMD): HTMLElement {
     parts.push(`🏠 ${c('home')} 🏪 ${c('store')} 🍴 ${c('out')}`);
   }
   const pend = pending(repo).length;
-  const title = state.view === 'week' ? '🗓 週の見直し' : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し` : state.view === 'month' ? '🗓 月の見直し' : '📋 この日';
+  const title = state.view === 'week' ? '🗓 週の見直し' : state.view === 'span' ? `🗓 ${SPAN_LABEL[state.span]}の見直し` : state.view === 'cycle' ? `🗓 ${cyc().days}日の見直し` : state.view === 'month' ? '🗓 月の見直し' : '📋 この日';
   return h('div', { class: 'review' },
     h('b', null, title), h('span', { class: 'sp' }),
     parts.map((p) => h('span', null, p)),
@@ -426,6 +437,58 @@ function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
         h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null),
         h('button', { class: 'ghost', title: '時刻・メモなどの詳細', onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '…'));
     }));
+}
+
+// ── 📆 長い期間（3か月・半年・1年）＝濃淡のマス目 ────────────
+/** 縦7（曜日）× 横（週）の小さな升目。**たまにしかやらないこと**の「間隔」を見るための画面。
+ *  ⚠ 記録の名前は出さない＝1年ぶんでは読めないし、ここで見たいのは「いつ・どれくらい空いたか」。
+ *     名前が要るときは升を押してその日へ（月の升目と同じ作法）。
+ *  ⚠ 🔁 自動の回はここでは作らない（wide()）＝見ただけで1年ぶんの記録が生まれるのを避ける */
+function spanGrid(track: Track | null, from: YMD, to: YMD): HTMLElement {
+  const today = repo.viewToday(), ws = repo.db.settings.weekStart;
+  const es = track ? repo.entriesFor(track.id, from, to) : repo.tracks.flatMap((t) => repo.entriesFor(t.id, from, to));
+  // ✅ を使う種目は ✅ が立った日だけ「やった」。使わない種目（食事など）は記録があれば「やった」
+  const isDone = (e: Entry) => (repo.track(e.trackId).features.done ? Boolean(e.doneAt) : true);
+  const by = new Map<YMD, { n: number; done: number; skip: number }>();
+  for (const e of es) {
+    const d = repo.viewDate(e);
+    const c = by.get(d) ?? { n: 0, done: 0, skip: 0 };
+    c.n++; if (isDone(e)) c.done++; else if (e.skippedAt) c.skip++;
+    by.set(d, c);
+  }
+  const weeks = spanWeeks(from, to);
+  const st = spanStats([...by.entries()].filter(([, c]) => c.done > 0).map(([d]) => d), today);
+
+  const sq = (w: number, r: number) => {
+    const d = addDays(from, w * 7 + r);
+    const c = by.get(d);
+    const lvl = !c ? 0 : c.done >= 3 ? 3 : c.done >= 2 ? 2 : c.done >= 1 ? 1 : 0;
+    const cls = d > today ? 'fut' : lvl ? `l${lvl}` : c?.skip ? 'skip' : c?.n ? 'open' : '';
+    const what = c ? `（${[c.done ? `✅${c.done}` : '', c.skip ? `🚫${c.skip}` : '', `${c.n}件`].filter(Boolean).join(' ')}）` : '';
+    return h('td', { class: `sq ${cls} ${d === today ? 'today' : ''}`, title: `${d}${what}`, onclick: () => { state.view = 'day'; state.anchor = d; render(); } });
+  };
+  // 月の変わり目にだけ見出しを出す（毎週出すと読めない）
+  const moHead = h('tr', null, h('th', { class: 'dw' }),
+    Array.from({ length: weeks }, (_, w) => {
+      const a = addDays(from, w * 7), b = addDays(a, 6);
+      const show = w === 0 || a.slice(5, 7) !== b.slice(5, 7) || a.slice(8) === '01';
+      return h('th', { class: 'mo' }, show ? `${Number(b.slice(5, 7))}月` : '');
+    }));
+
+  const pick = h('div', { class: 'btns' }, SPANS.map((m) =>
+    h('button', { class: state.span === m ? 'on' : '', onclick: () => { state.span = m; render(); } }, SPAN_LABEL[m])));
+  const line = st.days
+    ? `やった ${st.days}日 ／ 最後 ${st.last!.slice(5)}（${st.sinceLast === 0 ? '今日' : `${st.sinceLast}日前`}）`
+      + (st.avgGap != null ? ` ／ だいたい ${st.avgGap}日に1回` : '')
+      + (st.maxGap != null ? ` ／ いちばん空いたのは ${st.maxGap}日` : '')
+    : `この${SPAN_LABEL[state.span]}に「やった」記録はありません`;
+
+  return h('div', { class: 'gridWrap spanWrap' }, pick, h('p', { class: 'hint spanLine' }, line),
+    h('table', { class: 'spanGrid' }, h('thead', null, moHead),
+      h('tbody', null, Array.from({ length: 7 }, (_, r) => h('tr', null,
+        h('th', { class: 'dw' }, DOW_JA[(ws + r) % 7]),
+        Array.from({ length: weeks }, (_, w) => sq(w, r)))))),
+    hint('升を押すとその日へ。色の濃さ＝その日に ✅ が何件あったか（🚫 だけの日は別の色）'));
 }
 
 // ── 月 ───────────────────────────────────────────────────
