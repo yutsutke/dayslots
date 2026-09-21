@@ -106,6 +106,11 @@ td.mcell .ghostTxt { color: var(--ghost); }
 td.mcell .box.big { display: block; margin: 2px auto; }
 td.mcell .sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ⚙ の章＝4つの層（入れる／残す／読む／出す）。節（h3）より一段上に見せる */
+.sheetBody h2.layer { margin: 26px 0 4px; padding: 0 0 5px; border-bottom: 2px solid var(--line); font-size: 15px; scroll-margin-top: 46px; } /* 上に貼り付く飛び先の帯のぶん下げる＝飛んだ先が帯に隠れない */
+.sheetBody h2.layer small { font-weight: 400; margin-left: 8px; }
+.sheetBody .btns.jump { position: sticky; top: 0; z-index: 1; margin: 0 0 4px; padding: 4px 0; background: var(--panel); }
+
 /* 📆 長い期間＝縦7（曜日）× 横（週）の濃淡のマス目。たまにしかやらないことの「間隔」を見る */
 .spanWrap .btns { margin-bottom: 6px; }
 .spanWrap .spanLine { margin: 0 0 8px; color: var(--fg); font-size: 13px; }
@@ -213,7 +218,8 @@ table.slotsEd td input { max-width: 100%; }
 table.slotsEd td .sub { display: block; font-size: 10px; }
 @media (max-width: 600px) {
   .field { flex-direction: column; gap: 2px; }
-  .field .lbl { padding-top: 0; }
+  /* ⚠ 縦並びでは flex-basis が**高さ**になる＝96px の空き箱ができ、見出しと入力が大きく離れていた（2026-09-21） */
+  .field .lbl { flex: none; padding-top: 0; }
   .row .times { flex-basis: 96px; }
   /* スマホ＝頭が画面の大半を食っていた（2026-09-21 実機）。表に回す高さを作る */
   .tabs { gap: 4px; margin-bottom: 4px; }

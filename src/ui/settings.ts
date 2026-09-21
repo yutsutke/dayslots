@@ -90,6 +90,12 @@ function aiBlock(ctx: Ctx, draw: () => void): HTMLElement {
       st.ai?.key ? h('button', { class: 'danger', onclick: () => { if (confirm('鍵をこの端末から消しますか？')) { st.ai = undefined; modelList = null; modelNote = ''; void repo.persist(); draw(); } } }, '鍵を消す') : null));
 }
 
+/** 層の見出し＝⚙ を「入れる → 残す → 読む → 出す」の4章に割る。章の中の節（h3）は今までどおり */
+const layerHead = (id: string, title: string, sub: string) => h('h2', { class: 'layer', id }, title, h('small', null, sub));
+/** 上の飛び先＝12節あるので、スマホでは章まで飛べないと辿り着けない */
+const jump = (body: HTMLElement, id: string, label: string) =>
+  h('button', { class: 'sm', onclick: () => body.querySelector('#' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, label);
+
 export function openSettings(ctx: Ctx): void {
   const { repo } = ctx;
   const body = h('div');
@@ -99,6 +105,25 @@ export function openSettings(ctx: Ctx): void {
     const kindSel = h('select', null, (Object.keys(KIND_LABEL) as TrackKind[]).map((k) => h('option', { value: k }, KIND_LABEL[k])));
     const pend = pending(repo).length;
     fill(body, 
+      // ⚙ は4つの層で章立てする＝入れる → 残す → 読む → 出す（アプリの骨組みと同じ並び）。
+      // 平らに12節並べると、見え方の設定と保存場所の設定が隣り合って探しにくかった（2026-09-21）
+      h('div', { class: 'btns jump' }, jump(body, 'lay1', '① 入れる'), jump(body, 'lay2', '② 残す'), jump(body, 'lay3', '③ 読む'), jump(body, 'lay4', '④ 出す')),
+      layerHead('lay1', '① 入れる', 'どうやって記録にするか'),
+      h('h3', null, '⏵ 進行中（合図の「開始」「終了」）'),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.autoStop ?? true, onchange: (e: Event) => { st.autoStop = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 「開始」で他の進行中を自動で終了する', hint('一度に走るのは1つ（Now Then の「次をタップで前が止まる」）。外すと並行して走れる')),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.skipBreaksStreak ?? false, onchange: (e: Event) => { st.skipBreaksStreak = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 🚫「今日は無し」で 🔥 連続日数を切る', hint('既定は切らない＝🚫 は「やった／やっていない」とは別の第3の状態（Way of Life・Loop）')),
+      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.notify ?? false, onchange: async (e: Event) => { const on = (e.target as HTMLInputElement).checked; if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') { const p = await Notification.requestPermission(); if (p !== 'granted') { (e.target as HTMLInputElement).checked = false; alert('通知が許可されませんでした'); return; } } st.notify = on; void repo.persist(); } }), ' 長く走りすぎたら OS の通知でも知らせる', hint('上限は種目ごと（✏️ の「進行中の上限」・既定 180 分）。画面の上の1行には設定に関係なく出る')),
+
+      h('h3', null, '📷 手の形で合図'),
+      h('p', { class: 'hint' }, '写真を1枚えらぶと、手の形を見て、ここで決めた合図の文を入れます（🤖 本人の鍵が要ります）。写真は残しません（手の形は命令であって、記録ではないので）。分からなかったときは何も入れません。'),
+      gestureBlock(ctx, draw),
+
+      h('h3', null, '🤖 AI（BYOK＝本人の鍵）'),
+      h('p', { class: 'hint' }, '🧾 レシート・🍽 食事・📷 手の形 の写真を読ませるための鍵。鍵はこの端末の中だけに置き、選んだ会社へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。このアプリ専用に、使用上限つきの鍵を作るのがおすすめです。'),
+      h('p', { class: 'hint' }, '⚠ OpenAI へ直接はつなげません（ブラウザからの呼び出しを許していないため）。GPT を使いたいときは OpenRouter を選び、モデルに「openai/…」を指定してください（1つの鍵で GPT・Claude・Gemini などを使えます）。'),
+      aiBlock(ctx, draw),
+
+      layerHead('lay2', '② 残す', '何を記録に持つか'),
       h('h3', null, '種目と枡（時間帯）'),
       h('p', { class: 'hint' }, '種目＝記録の種類（やること／食事／運動…）。枡＝1日を切った時間帯。境目は記録に焼き込まず読むときに当てるので、変えると過去の記録もその場で並び直ります。'),
       [...repo.db.tracks].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => h('div', { class: 'item' + (t.archived ? ' dim' : '') },
@@ -112,26 +137,11 @@ export function openSettings(ctx: Ctx): void {
       h('div', { class: 'inline' }, kindSel, h('button', { onclick: () => { const t = repo.addTrackFromPreset(kindSel.value as TrackKind); openTrackEditor(ctx, t, draw); } }, '＋ 種目を足す'),
         hint('例＝「運動型」で 朝散歩／夜ジム。枡はあとから自由に変えられます')),
 
+      layerHead('lay3', '③ 読む', '読むときに決めること（記録は書き換えない）'),
       h('h3', null, '週の始まり'),
       h('div', { class: 'btns' },
         h('button', { class: st.weekStart === 0 ? 'on' : '', onclick: () => { st.weekStart = 0; void repo.persist(); draw(); } }, '日曜'),
         h('button', { class: st.weekStart === 1 ? 'on' : '', onclick: () => { st.weekStart = 1; void repo.persist(); draw(); } }, '月曜')),
-
-      h('h3', null, 'N日のひと区切り（サイクル）'),
-      h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは読むときだけなので、日数や数え始める日を変えても記録は書き換わりません。'),
-      cycleBlock(ctx, draw),
-
-      h('h3', null, '📷 手の形で合図'),
-      h('p', { class: 'hint' }, '写真を1枚えらぶと、手の形を見て、ここで決めた合図の文を入れます（🤖 本人の鍵が要ります）。写真は残しません（手の形は命令であって、記録ではないので）。分からなかったときは何も入れません。'),
-      gestureBlock(ctx, draw),
-
-      h('h3', null, '📅 Google カレンダー'),
-      h('p', { class: 'hint' }, '時刻つきの記録だけを出します（枡だけの記録は出しません）。つなぎ方は ライフログと同じ Edge Function 方式（SPEC.md §7）。関数 koma-gcal はまだ作っていません（Phase 4）＝ここは入れ物だけ。'),
-      field('関数の場所', h('input', { value: st.supabaseUrl, placeholder: 'https://xxxx.supabase.co', oninput: (e: Event) => { st.supabaseUrl = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } })),
-      field('合言葉', h('input', { type: 'password', value: st.calendarSecret, oninput: (e: Event) => { st.calendarSecret = (e.target as HTMLInputElement).value; void repo.persist(); } })),
-      h('div', { class: 'inline' },
-        h('span', null, `未送信 ${pend} 件`),
-        h('button', { onclick: async () => { const r = await syncAll(repo, new GoogleViaEdgeFunction(st.supabaseUrl, st.calendarSecret)); alert(`送った ${r.sent} · 消した ${r.removed}` + (r.errors.length ? `\n⚠ ${r.errors.join('\n')}` : '')); draw(); } }, 'いま送る')),
 
       h('h3', null, '☀ 日の出・日の入りの場所'),
       h('p', { class: 'hint' }, (() => { const p = st.sunPlace ?? TOKYO; const t = sunTimes(todayYMD(), p); return `枡の境目を「日の出の30分前」「昼を3等分」のように決めるときに使います（種目の ✏️ → 始まり）。通信せず端末で計算・5分刻み。いま＝${p.name ?? `${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`}：今日の日の出 ${t ? fmtMin(t.rise) : '—'}・日の入り ${t ? fmtMin(t.set) : '—'}`; })()),
@@ -145,20 +155,15 @@ export function openSettings(ctx: Ctx): void {
         st.dayStart && st.dayStart.base !== 'midnight' ? h('div', { class: 'inline' }, 'ずらし', h('input', { type: 'number', step: 5, min: -180, max: 180, value: st.dayStart.offsetMin, style: { width: '5em' }, onchange: (e: Event) => { if (st.dayStart && st.dayStart.base !== 'midnight') { st.dayStart.offsetMin = Number((e.target as HTMLInputElement).value) || 0; void repo.persist(); draw(); } } }), '分（−30＝30分前から新しい日）') : null,
         hint('どの日に見せるか、だけが変わります（記録の日付と時刻は書き換えません・0:00 に戻せば元どおり）。🌅 日の出＝未明の記録は前の日の続き（江戸の明け六つ始まり）。🌇 日の入り＝日没以後の記録は次の日のぶん。時刻の無い記録は暦の日のまま。')),
 
-      h('h3', null, '⏵ 進行中（合図の「開始」「終了」）'),
-      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.autoStop ?? true, onchange: (e: Event) => { st.autoStop = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 「開始」で他の進行中を自動で終了する', hint('一度に走るのは1つ（Now Then の「次をタップで前が止まる」）。外すと並行して走れる')),
-      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.skipBreaksStreak ?? false, onchange: (e: Event) => { st.skipBreaksStreak = (e.target as HTMLInputElement).checked; void repo.persist(); } }), ' 🚫「今日は無し」で 🔥 連続日数を切る', hint('既定は切らない＝🚫 は「やった／やっていない」とは別の第3の状態（Way of Life・Loop）')),
-      h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.notify ?? false, onchange: async (e: Event) => { const on = (e.target as HTMLInputElement).checked; if (on && typeof Notification !== 'undefined' && Notification.permission !== 'granted') { const p = await Notification.requestPermission(); if (p !== 'granted') { (e.target as HTMLInputElement).checked = false; alert('通知が許可されませんでした'); return; } } st.notify = on; void repo.persist(); } }), ' 長く走りすぎたら OS の通知でも知らせる', hint('上限は種目ごと（✏️ の「進行中の上限」・既定 180 分）。画面の上の1行には設定に関係なく出る')),
-
-      h('h3', null, '🤖 AI（BYOK＝本人の鍵）'),
-      h('p', { class: 'hint' }, '🧾 レシート・🍽 食事・📷 手の形 の写真を読ませるための鍵。鍵はこの端末の中だけに置き、選んだ会社へ端末から直接送ります。このアプリのサーバは無い＝どこにも保存されません。数値（カロリー等）は作らせません。このアプリ専用に、使用上限つきの鍵を作るのがおすすめです。'),
-      h('p', { class: 'hint' }, '⚠ OpenAI へ直接はつなげません（ブラウザからの呼び出しを許していないため）。GPT を使いたいときは OpenRouter を選び、モデルに「openai/…」を指定してください（1つの鍵で GPT・Claude・Gemini などを使えます）。'),
-      aiBlock(ctx, draw),
+      h('h3', null, 'N日のひと区切り（サイクル）'),
+      h('p', { class: 'hint' }, '週（曜日で切る暦の区切り）とは別に、3日・10日 のような幅で切って見ます。切るのは読むときだけなので、日数や数え始める日を変えても記録は書き換わりません。'),
+      cycleBlock(ctx, draw),
 
       h('h3', null, '🗓 休み（有給・夏休みなど）'),
       h('p', { class: 'hint' }, '🔁 の「平日」「休日」「週の最初の平日」の判定に効きます（土日と日本の祝日は入れなくてよい）。1行に1日 YYYY-MM-DD。'),
       h('textarea', { rows: 3, value: repo.db.holidays.join('\n'), onchange: (e: Event) => { repo.db.holidays = (e.target as HTMLTextAreaElement).value.split(/\s+/).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)); void repo.persist(); } }),
 
+      layerHead('lay4', '④ 出す', 'どこへ渡すか'),
       h('h3', null, '☁ 保存場所（外の写し）'),
       h('p', { class: 'hint' }, '記録はいつも端末の中にあり、ここで選んだ所に**写し**を置きます。開いたときに外の方が新しければ取り込み、保存のたびに数秒後に押し出します（新しい方が勝つ）。'),
       h('div', { class: 'btns' }, ([['local', '端末のみ'], ['drive', 'Google ドライブ'], ['supabase', 'Supabase']] as [StorageKind, string][]).map(([k, l]) =>
@@ -188,6 +193,14 @@ export function openSettings(ctx: Ctx): void {
         const r = buildReview(repo, todayYMD(), n); const ta = h('textarea', { rows: 18, value: r.text, readOnly: true, style: { fontFamily: 'ui-monospace, monospace', fontSize: '12px' } });
         modal(`📝 振り返りの要約（${n}日・${r.text.length.toLocaleString()} 文字）`, h('div', null, ta, h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: async () => { try { await navigator.clipboard.writeText(r.text); alert('コピーしました'); } catch { ta.select(); } } }, '📋 コピー'))), { wide: true });
       } }, `${n}日ぶんを見る`))),
+
+      h('h3', null, '📅 Google カレンダー'),
+      h('p', { class: 'hint' }, '時刻つきの記録だけを出します（枡だけの記録は出しません）。つなぎ方は ライフログと同じ Edge Function 方式（SPEC.md §7）。関数 koma-gcal はまだ作っていません（Phase 4）＝ここは入れ物だけ。'),
+      field('関数の場所', h('input', { value: st.supabaseUrl, placeholder: 'https://xxxx.supabase.co', oninput: (e: Event) => { st.supabaseUrl = (e.target as HTMLInputElement).value.trim(); void repo.persist(); } })),
+      field('合言葉', h('input', { type: 'password', value: st.calendarSecret, oninput: (e: Event) => { st.calendarSecret = (e.target as HTMLInputElement).value; void repo.persist(); } })),
+      h('div', { class: 'inline' },
+        h('span', null, `未送信 ${pend} 件`),
+        h('button', { onclick: async () => { const r = await syncAll(repo, new GoogleViaEdgeFunction(st.supabaseUrl, st.calendarSecret)); alert(`送った ${r.sent} · 消した ${r.removed}` + (r.errors.length ? `\n⚠ ${r.errors.join('\n')}` : '')); draw(); } }, 'いま送る')),
 
       h('h3', null, 'データ'),
       h('div', { class: 'btns' },
