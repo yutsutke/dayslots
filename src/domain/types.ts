@@ -160,6 +160,9 @@ export interface Settings {
   /** 📷 手の形 → 合図の文 の対応表（人が決める）。省略＝既定（☝ 1本＝開始／✌ 2本＝終了）。
    *  写真は残さない＝手の形は命令であって記録ではない */
   gestures?: { gesture: string; say: string }[];
+  /** 頭を畳む（端末ごと）＝スマホで表を見るとき、種目のタブと 合図・録音の行 が画面の大半を食うため。
+   *  tracks＝種目のタブを1行の選び方に畳む／signal＝合図・録音の行を隠す。省略＝どちらも広げたまま */
+  fold?: { tracks: boolean; signal: boolean };
   /** 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）。呼び先の顔ぶれは src/ai/byok.ts の PROVIDERS と揃える */
   ai?: { provider: 'anthropic' | 'gemini' | 'openrouter'; key: string; model: string };
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true

@@ -1,4 +1,5 @@
-/* 画面の骨＝上の帯（種目タブ・週/1日/月・日送り・⭐🔁⚙）＋ 見直しの帯 ＋ 升目（週・月）か一覧（1日）
+/* 画面の骨＝上の帯（①種目 ②合図・録音 ③見方と日送り ④見直しの帯）＋ 升目（週・月）か一覧（1日）
+ *  頭はスマホで画面の半分を食うので、①と②は畳める（端末ごとに覚える＝settings.fold）
  *  一日一回の種目（features.daily）は、升目が「その日の印」1つになる（なし → ✅ → 🚫 → なし を1タップで回す） */
 import { h, hint } from './dom';
 import { Repo } from '../app/repo';
@@ -27,7 +28,7 @@ import { pickImages, readOnlyImage } from './photos';
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v25';
+export const BUILD = 'v26';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -68,6 +69,10 @@ const ctx = (): Ctx => ({ repo, render, anchor: () => state.anchor });
 const isDaily = (t: Track) => Boolean(t.features.daily);
 /** N日のひと区切り＝日数と数え始める日。まだ決めていなければ 3日・今日から */
 const cyc = (): { days: number; from: YMD } => repo.db.settings.cycle ?? { days: 3, from: repo.viewToday() };
+/** 頭を畳む（端末ごとに覚える）＝スマホで表を見るときのため。既定は広げたまま（初めて開いた人を驚かせない） */
+const fold = (): { tracks: boolean; signal: boolean } => repo.db.settings.fold ?? { tracks: false, signal: false };
+const setFold = (k: 'tracks' | 'signal', v: boolean): void => { repo.db.settings.fold = { ...fold(), [k]: v }; void repo.persist(); render(); };
+
 const SHOW_DEF: ShowFlags = { time: true, duration: true, note: false, photos: true, gap: true };
 const show = (): ShowFlags => ({ ...SHOW_DEF, ...(repo.db.settings.show ?? {}) });
 /** 升目に出すもの（🕐 何時から／⏱ 何分／💬 コメント／📷 写真／⚖️ 予定とのズレ）＝押して切り替える。端末の設定として残る */
@@ -136,13 +141,27 @@ function move(dir: 1 | -1): void {
 
 function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
   const all = track == null;
-  const tabs = h('div', { class: 'tabs' },
-    h('button', { class: all ? 'on' : '', title: '種目をまたいで見る（週＝日 × 種目）', onclick: () => { state.trackId = ALL; render(); } }, '⊞ すべて'),
-    repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
-    track ? h('span', { class: 'seg mv', title: '選んでいる種目の並びを動かす' },
-      h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
-      h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
-    h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙'));
+  const f = fold();
+  // 畳む2つ＝この行はいつも出ているので、ここに置けば畳んだ後も戻せる
+  const foldBtns = [
+    h('button', { class: `tg ${f.signal ? 'off' : 'on'}`, title: f.signal ? '合図・録音の行を出す' : '合図・録音の行を畳む', onclick: () => setFold('signal', !f.signal) }, '🎤'),
+    h('button', { class: 'ghost sm', title: f.tracks ? '種目のタブを広げる' : '種目のタブを畳む（1行の選び方になります）', onclick: () => setFold('tracks', !f.tracks) }, f.tracks ? '▾' : '▴'),
+  ];
+  const gear = h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙');
+  // ⚠ 畳んでも**種目は変えられる**（1行の選び方に変わるだけ）＝畳んだら何もできない、を作らない
+  const tabs = f.tracks
+    ? h('div', { class: 'tabs folded' },
+        h('select', { class: 'trackSel', onchange: (e: Event) => { state.trackId = (e.target as HTMLSelectElement).value; render(); } },
+          h('option', { value: ALL, selected: all }, '⊞ すべて'),
+          repo.tracks.map((t) => h('option', { value: t.id, selected: t.id === state.trackId }, `${t.icon} ${t.name}`))),
+        ...foldBtns, gear)
+    : h('div', { class: 'tabs' },
+        h('button', { class: all ? 'on' : '', title: '種目をまたいで見る（週＝日 × 種目）', onclick: () => { state.trackId = ALL; render(); } }, '⊞ すべて'),
+        repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
+        track ? h('span', { class: 'seg mv', title: '選んでいる種目の並びを動かす' },
+          h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
+          h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
+        ...foldBtns, gear);
   const c = cyc();
   const label = state.view === 'list' ? (state.listAll ? 'ぜんぶ' : '直近90日〜') : state.view === 'day' ? `${from}（${DOW_JA[dowOf(from)]}）` : state.view === 'month' ? state.anchor.slice(0, 7)
     : state.view === 'cycle' ? `${from} 〜 ${to.slice(5)}（${c.days}日・${cycleIndex(from, c.from, c.days)}周目）` : `${from} 〜 ${to.slice(5)}`;
@@ -162,8 +181,9 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
       h('button', { onclick: () => openTemplates(ctx(), track) }, '⭐ いつもの'),
       h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
       h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
-    ] : hint('足す・⭐・🔁 は種目のタブで'));
-  return h('header', null, runningStrip(), tabs, nav, signalBar(track), track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox(), timersBox());
+    ] : hint('足す・⭐・🔁 は種目を選んでから'));
+  // ⚠ 並び＝種目 → **合図・録音** → 見方・日送り。録音は2行目にある方が押しやすい（ゆう 2026-09-21）
+  return h('header', null, runningStrip(), tabs, signalBar(track), nav, track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox(), timersBox());
 }
 
 /** 「なに」を選ぶ板＝種目 → 候補（⭐ いつもの か 種目の名前）／名前を入れる。fixed があれば種目は決め打ち */
@@ -214,7 +234,8 @@ function runningStrip(): HTMLElement | null {
 
 /** 合図の入力欄＝全体（名前を解く）／種目（名前は省いてよい）。Enter か「入れる」で通す */
 let lastToast = '';
-function signalBar(track: Track | null): HTMLElement {
+function signalBar(track: Track | null): HTMLElement | null {
+  if (fold().signal) return lastToast ? h('div', { class: 'sigBar' }, h('span', { class: 'toast', onclick: () => { lastToast = ''; render(); } }, lastToast)) : null;
   const inp = h('input', { class: 'sig', placeholder: track ? `${track.name}への合図＝「開始」「終了」「30分」「やった」…` : '合図＝「座禅開始」「散歩終了」「散歩 30分」「昼ごはん やった」…', enterkeyhint: 'send' });
   const go = (text = inp.value.trim()) => {
     if (!text) return;

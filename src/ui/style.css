@@ -29,7 +29,10 @@ header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8
 .nav .range { padding: 0 4px; white-space: nowrap; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .seg button { border: 0; border-radius: 0; }
-.review { display: flex; gap: 10px; align-items: center; margin-top: 8px; padding: 6px 10px; border: 1px solid var(--ok); border-radius: 10px; background: var(--ok-bg); font-size: 13px; }
+.review { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-top: 8px; padding: 6px 10px; border: 1px solid var(--ok); border-radius: 10px; background: var(--ok-bg); font-size: 13px; }
+/* ⚠ 項目の途中で折らない＝狭い画面で「週 の 見 直 し」と1文字ずつ縦に割れていた（2026-09-21 実機） */
+.review > b, .review > span { white-space: nowrap; }
+.review > .sp { flex: 1 1 0; min-width: 0; } /* 折り返す並びなので、押し広げる幅は持たせない */
 .review .warn { color: var(--skip); }
 
 .gridWrap { overflow-x: auto; padding: 8px 10px 40px; }
@@ -194,12 +197,24 @@ table.slotsEd td .sub { display: block; font-size: 10px; }
   .field { flex-direction: column; gap: 2px; }
   .field .lbl { padding-top: 0; }
   .row .times { flex-basis: 96px; }
+  /* スマホ＝頭が画面の大半を食っていた（2026-09-21 実機）。表に回す高さを作る */
+  .tabs { gap: 4px; margin-bottom: 4px; }
+  .tabs button { padding: 5px 8px; font-size: 13px; }
+  .nav { gap: 4px; }
+  .nav button { padding: 5px 8px; font-size: 13px; }
+  .sigBar { gap: 4px; margin-top: 4px; }
+  .review { gap: 3px 8px; margin-top: 4px; padding: 5px 8px; font-size: 12px; }
 }
 
 /* 升目に出すものの切替（🕐 ⏱ 💬 📷） */
+/* 頭を畳む（スマホで表を見るため）＝種目を1行の選び方に、合図・録音の行を隠す */
+.tabs .tg { padding: 4px 8px; font-size: 15px; }
+.tabs.folded { gap: 6px; }
+.tabs.folded .trackSel { flex: 1; min-width: 0; font-weight: 600; padding: 6px 8px; border-radius: 8px; }
+
 .toggles { display: inline-flex; gap: 2px; margin-left: 4px; }
 .toggles .tg { padding: 4px 6px; }
-.toggles .tg.off { opacity: .35; filter: grayscale(1); }
+.tg.off { opacity: .35; filter: grayscale(1); }
 .dur { color: var(--dim); font-size: 11px; white-space: nowrap; }
 .gap { color: var(--dim); font-size: 11px; } /* ズレ＝予定と実際の差。記録には無い値なので、時刻より控えめに出す（折り返しは許す） */
 .note { color: var(--fg); opacity: .85; }
