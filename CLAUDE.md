@@ -31,17 +31,18 @@ SPEC.md                 全体像（正典）。設計判断はここに追記
 TODO.md / CHANGELOG.md  現在地／やったことの蓄積（セッション終了時に必ず更新）
 docs/reports/           似たアプリの調査（次の一手 16 項目）。docs/research_notes/ はその元の調査ノート
 index.html, src/main.ts 入口
-src/domain/             言葉（types）・暦（dates）・枡の決まり（slots＝長さ durationOf もここ）・🔁 の展開（recur）・種目の型（defaults）・合図を解く（signal）・☀ 日の出/日の入り（sun）・1日の始まり＝どの日に見せるか（viewday）・ズレ＝予定と実際の差（gap）・⏭ 先送り＝やる日を動かした履歴の読み方（postpone）・N日のひと区切り（cycle）・📷 手の形の顔ぶれと対応表（gesture）・📆 長い期間の窓と「たまにしかやらないこと」の数（span）・📷 記録に埋まったサムネを外へ移す段取り（thumbs）
+src/domain/             言葉（types）・暦（dates）・枡の決まり（slots＝長さ durationOf もここ）・🔁 の展開（recur）・種目の型（defaults）・合図を解く（signal）・☀ 日の出/日の入り（sun）・1日の始まり＝どの日に見せるか（viewday）・ズレ＝予定と実際の差（gap）・⏭ 先送り＝やる日を動かした履歴の読み方（postpone）・N日のひと区切り（cycle）・📷 手の形の顔ぶれと対応表（gesture）・📆 長い期間の窓と「たまにしかやらないこと」の数（span）・📷 記録に埋まったサムネを外へ移す段取り（thumbs）・🗓 記念日の節目/🔔/経過日数（milestones＝ライフログと同じ決まり）
 src/app/repo.ts         台帳＝画面が呼ぶ操作（✅🚫🔀・⭐・🔁・種目・一日一回・合図 applySignal・進行中・並べ替え）
 src/app/review.ts       📝 振り返りの要約（AI が読む直近7日の読み物）
 src/ai/byok.ts          🤖 本人の鍵で AI を呼ぶ。呼び先の違いは PROVIDERS の1枚（Anthropic／Gemini／OpenRouter）＝足すのは1行。モデルの一覧は先方に聞く（決め打ちの表を持たない）。返事は検査してから使い、鍵はエラー文にも出さない
 src/store/              置き場：localStorage（本体）／見本データ（seed）／supabase.ts は古い口（使っていない）
-src/sync/               calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
+src/sync/               milestones（🗓 ライフログの記念日を読む・足す・直す口＝関数 koma-milestones）／calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
 src/export/sqlite.ts    SQLite の書き出し（sql.js を書き出すときだけ読む）
-src/ui/                 app（骨・週/1日/月・すべて・合図の欄・進行中の1行）／forms（記録・⭐・🔁・📷🤖）／settings（⚙）／photos（縮小・IndexedDB＝本体とサムネの2つの棚・サムネを出す thumbImg）／voice（🎤）／dom／style.css
-test/                   Vitest 200 本（負のテストを含む）
+src/ui/                 app（骨・週/1日/月・すべて・合図の欄・進行中の1行）／forms（記録・⭐・🔁・📷🤖）／settings（⚙）／photos（縮小・IndexedDB＝本体とサムネの2つの棚・サムネを出す thumbImg）／milestones（🗓 一覧・1件の板・日の見出しの印）／voice（🎤）／dom／style.css
+test/                   Vitest 215 本（負のテストを含む）
 supabase/migrations/    0001（行単位の表・未適用）／0002 koma_docs・0003 review（**本番に適用済み**）
 supabase/functions/koma-store/  外の写しの関数（index.ts ＋ delta.ts＝src/sync/delta.ts の写し。検査が一致を見る）
+supabase/functions/koma-milestones/  🗓 ライフログの表 milestones・milestone_logs を読む／足す／直す（消さない・写真に触らない。**本番に置いた** v1）
 capacitor.config.json, codemagic.yaml, ios/   iOS の殻（Phase 1）
 .claude/launch.json     dev サーバ（port 5276）
 ```

@@ -1,7 +1,7 @@
 /* 画面の骨＝上の帯（①種目 ②合図・録音 ③見方と日送り ④見直しの帯）＋ 升目（週・月）か一覧（1日）
  *  頭はスマホで画面の半分を食うので、①と②は畳める（端末ごとに覚える＝settings.fold）
  *  一日一回の種目（features.daily）は、升目が「その日の印」1つになる（なし → ✅ → 🚫 → なし を1タップで回す） */
-import { h, hint } from './dom';
+import { h, hint, fill } from './dom';
 import { Repo } from '../app/repo';
 import { LocalStore } from '../store/store';
 import { seedDb } from '../store/seed';
@@ -26,11 +26,12 @@ import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/
 import { aiConfigured, readGesture } from '../ai/byok';
 import { pickImages, readOnlyImage, thumbImg, putThumbDataUrl } from './photos';
 import { moveThumbsOut } from '../domain/thumbs';
+import { initMilestones, msChips, openMilestones, reload as reloadMilestones } from './milestones';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v29';
+export const BUILD = 'v30';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -54,10 +55,12 @@ export async function boot(el: HTMLElement): Promise<void> {
       return 'cancel';
     }, () => buildReview(repo, todayYMD(), 7));
   // 画面に戻ってきたら外を確かめる（別の端末で足した記録が出る）。外が新しくなければ中身は落ちてこない＝軽い
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void syncer.pullIfNewer(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { void syncer.pullIfNewer(); void reloadMilestones(); } });
   repo.onPersist = () => syncer.schedulePush();
   render();
   void moveThumbs();
+  // 🗓 記念日＝ライフログの表を読む（つなぎ先は外の写しの Supabase と同じ）。控えをすぐ出し、裏で読み直す
+  initMilestones(() => repo.db.settings.storage, render);
   void syncer.pullIfNewer();
   // ⏵ 進行中の経過分を1分ごとに描き直す（記録は触らない＝時刻から計算するだけ。長すぎれば OS の通知も）
   setInterval(() => { if (repo.running().length || repo.runningTimers().length) { notifyOverdue(); render(); } }, 60_000);
@@ -132,7 +135,7 @@ export function render(): void {
     const [from, to] = range();
     if (!wide()) repo.ensureAuto(from, to);
     const body = state.view === 'span' ? spanGrid(null, from, to) : state.view === 'list' ? listView(null, from, to) : state.view === 'day' ? allDay(from) : state.view === 'month' ? allMonth(from) : allWeek(from, to);
-    root.replaceChildren(header(null, from, to), body, footer());
+    fill(root, header(null, from, to), dayMsBar(from), body, footer());
     return;
   }
   const track = repo.track(state.trackId);
@@ -141,8 +144,10 @@ export function render(): void {
   const body = state.view === 'span' ? spanGrid(track, from, to) : state.view === 'list' ? listView(track, from, to) : state.view === 'day' ? dayList(track, from)
     : state.view === 'month' ? monthGrid(track, from)
     : isDaily(track) ? dailyWeek(track, from, to) : weekGrid(track, from, to);
-  root.replaceChildren(header(track, from, to), body, footer());
+  fill(root, header(track, from, to), dayMsBar(from), body, footer());
 }
+/** 1日の見方のときだけ、その日の 🗓 節目・🔔 を見出しの下に（週・月は日の見出しに添える） */
+const dayMsBar = (d: YMD): HTMLElement | null => { if (state.view !== 'day') return null; const c = msChips(d); return c ? h('div', { class: 'msBar' }, c) : null; };
 
 function move(dir: 1 | -1): void {
   if (state.view === 'list') return;
@@ -192,6 +197,7 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
     h('b', { class: 'range' }, label),
     h('button', { onclick: () => move(1) }, '▶'),
     h('button', { onclick: () => { state.anchor = repo.viewToday(); render(); } }, '今日'),
+    h('button', { title: '🗓 記念日（ライフログの記念日を読む・足す・直す）', onclick: () => openMilestones() }, '🗓'),
     viewToggles(),
     h('span', { class: 'sp' }),
     track ? [
@@ -366,7 +372,7 @@ function allWeek(from: YMD, to: YMD): HTMLElement {
     h('thead', null, h('tr', null, h('th', { class: 'dcol' }),
       repo.tracks.map((t) => h('th', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, h('div', null, `${t.icon} ${t.name}`), h('small', null, isDaily(t) ? '一日一回' : `${t.slots.length} 枡`))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
-      h('th', { class: 'dcol' }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)])),
+      h('th', { class: 'dcol' }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), msChips(d)),
       repo.tracks.map((t) => cell(t, d)))))));
 }
 
@@ -416,7 +422,7 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
       cols.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
         h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key, today >= from && today <= to ? today : from)))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
-      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null),
+      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null, msChips(d)),
       cols.map((s) => h('td', { class: 'cell' },
         es.filter((e) => repo.viewDate(e) === d && bucketOf(track, e) === s.key).map((e) => chip(track, e)),
         gs.filter((o) => o.date === d && bucketOfOccurrence(track, o) === s.key).map((o) => ghost(track, o)),
@@ -439,7 +445,7 @@ function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
       const e = repo.dayEntry(track.id, d);
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
-        h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)])),
+        h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)]), msChips(d)),
         h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => thumbImg(p))) : null),
         h('button', { class: 'ghost', title: '時刻・メモなどの詳細', onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '…'));
     }));
@@ -511,13 +517,13 @@ function monthGrid(track: Track, from: YMD): HTMLElement {
     if (isDaily(track)) {
       const e = repo.dayEntry(track.id, d);
       return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''} ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''}` },
-        h('div', { class: 'dn', onclick: goDay }, String(Number(d.slice(8)))),
+        h('div', { class: 'dn', onclick: goDay }, String(Number(d.slice(8)))), msChips(d),
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
         e && dayDetail(e) ? h('small', { class: 'sub' }, dayDetail(e)) : null);
     }
     const shown = list.slice(0, 3);
     return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: goDay },
-      h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null),
+      h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null), msChips(d),
       shown.map((e) => { const m = primaryMinute(track, e), dur = durationOf(e); return h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` },
         show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title, show().duration && dur ? h('span', { class: 'dur' }, ` ⏱${fmtDur(dur)}`) : null,
         show().photos && e.photos.length ? thumbImg(e.photos[0], 'thumb xs') : null); }),
@@ -580,7 +586,7 @@ function allMonth(from: YMD): HTMLElement {
       return h('div', { class: `mini ${cls}` }, `${t.icon} ${t.features.done ? `${done}/${es.length}` : es.length}`);
     }).filter(Boolean);
     return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: () => { state.view = 'day'; state.anchor = d; render(); } },
-      h('div', { class: 'dn' }, String(Number(d.slice(8)))), lines.length ? lines : h('small', { class: 'sub' }, '·'));
+      h('div', { class: 'dn' }, String(Number(d.slice(8)))), msChips(d), lines.length ? lines : h('small', { class: 'sub' }, '·'));
   };
   return h('div', { class: 'gridWrap' }, h('table', { class: 'month' },
     h('thead', null, h('tr', null, Array.from({ length: 7 }, (_, i) => h('th', null, DOW_JA[(ws + i) % 7])))),
