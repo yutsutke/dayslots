@@ -3,7 +3,7 @@
  */
 import { h, fill, modal, field, hint, type Child } from './dom';
 import type { YMD } from '../domain/types';
-import { todayYMD } from '../domain/dates';
+import { todayYMD, addDays } from '../domain/dates';
 import { marksOn, rowsOf, logDay, reminderLabel, checkMilestone, type Milestone, type MilestoneLog, type Reminder } from '../domain/milestones';
 import { connected, fetchMilestones, cachedMilestones, saveMilestone, saveLog, type MilestoneConn, type MilestoneData } from '../sync/milestones';
 
@@ -133,4 +133,86 @@ function logRow(m: Milestone, l: MilestoneLog | null, redraw: () => void): HTMLE
   };
   show(false);
   return wrap;
+}
+
+// ── 🗓 記念日のタブ（v31）＝その記念日を1つの種目のように見る。中身はライフログの記録ログ ──────────
+export const milestonesNow = (): Milestone[] => data?.milestones ?? [];
+export const findMilestone = (id: number): Milestone | null => data?.milestones.find((m) => m.id === id) ?? null;
+const logsIn = (m: Milestone, from: YMD, to: YMD): MilestoneLog[] =>
+  (data?.logs ?? []).filter((l) => l.milestoneId === m.id && l.date >= from && l.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+
+/** 記録ログを1件足す／直す板（升目の ＋ や行から） */
+export function openLogForm(m: Milestone, date: YMD, log: MilestoneLog | null = null): void {
+  const x = { date: log?.date ?? date, note: log?.note ?? '' };
+  const body = h('div');
+  const md = modal(`🗓 ${m.title}${log ? '（記録ログを直す）' : 'に記録ログを足す'}`, body);
+  fill(body,
+    field('日付', h('input', { type: 'date', value: x.date, onchange: (e: Event) => { x.date = (e.target as HTMLInputElement).value; } })),
+    field('メモ', h('textarea', { rows: 3, value: x.note, placeholder: 'この日のこと', oninput: (e: Event) => { x.note = (e.target as HTMLTextAreaElement).value; } })),
+    log?.photoCount ? hint(`📷 写真 ${log.photoCount} 枚はライフログで見られます`) : null,
+    h('div', { class: 'actions' },
+      h('button', { class: 'primary', onclick: async () => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) { alert('日付を入れてください'); return; }
+        if (!log && !x.note.trim()) { alert('なにを残すか書いてください'); return; }
+        try {
+          const saved = await saveLog(conn()!, { id: log?.id, milestoneId: m.id, date: x.date, note: x.note.trim() || null });
+          if (data) { const i = data.logs.findIndex((y) => y.id === saved.id); if (i < 0) data.logs.push(saved); else data.logs[i] = saved; }
+          md.close(); onChange();
+        } catch (e) { alert((e as Error).message); }
+      } }, '保存（ライフログへ）'),
+      h('span', { class: 'sp' }), h('button', { onclick: md.close }, '閉じる')),
+    hint('消すのはライフログから'));
+}
+
+/** 見直しの帯に出す一言＝何日目・この範囲の記録ログ・次の周年 */
+export function msSummary(m: Milestone, from: YMD, to: YMD, today: YMD): string {
+  const r = rowsOf([m], today)[0];
+  return [r.days >= 0 ? `${r.days.toLocaleString()}日目（${r.cal}）` : `あと ${(-r.days).toLocaleString()}日`,
+    `📝 この範囲 ${logsIn(m, from, to).length} 件／全部 ${(data?.logs ?? []).filter((l) => l.milestoneId === m.id).length} 件`,
+    r.days >= 0 && r.years > 0 ? (r.untilNext === 0 ? `🎉 今日で ${r.years}年` : `次の ${r.years}年まで あと${r.untilNext}日`) : ''].filter(Boolean).join(' · ');
+}
+
+/** その日の添え書き＝当日・周年（N年）と、節目・🔔 */
+function dayNote(m: Milestone, d: YMD): Child {
+  const out: Child[] = [];
+  if (d === m.date) out.push(h('span', { class: 'msChip' }, '🗓 当日'));
+  else if (d.slice(5) === m.date.slice(5) && d > m.date) out.push(h('span', { class: 'msChip' }, `🎉 ${+d.slice(0, 4) - +m.date.slice(0, 4)}年`));
+  for (const x of marksOn(d, [m])) out.push(h('span', { class: `msChip ${x.kind}` }, `${x.kind === 'remind' ? '🔔' : '🗓'} ${x.label}`));
+  return out.length ? h('span', { class: 'msMarks' }, out) : null;
+}
+const logLine = (m: Milestone, l: MilestoneLog): HTMLElement =>
+  h('div', { class: 'mini msLogMini', title: '押すと直す', onclick: (e: Event) => { e.stopPropagation(); openLogForm(m, l.date, l); } },
+    l.note ?? '（メモなし）', l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null);
+
+export interface MsViewOpts { view: 'week' | 'day' | 'month' | 'list' | 'cycle' | 'span'; from: YMD; to: YMD; today: YMD; weekStart: 0 | 1; month: string; dow: (d: YMD) => string; goDay: (d: YMD) => void; }
+/** 記念日のタブの中身。週・N日＝1日1行／1日＝その日／月＝升目／リスト・長い期間＝記録ログの並び */
+export function msTabBody(m: Milestone, o: MsViewOpts): HTMLElement {
+  const days = (a: YMD, b: YMD): YMD[] => { const out: YMD[] = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
+  const addBtn = (d: YMD) => h('button', { class: 'add', title: 'この日に記録ログを足す', onclick: (e: Event) => { e.stopPropagation(); openLogForm(m, d); } }, '＋');
+  if (o.view === 'list' || o.view === 'span') {
+    const from = o.view === 'list' ? '0000-01-01' : o.from, to = o.view === 'list' ? '9999-12-31' : o.to; // 文字の比べだけ＝日を1つずつ数えない
+    const ls = logsIn(m, from, to);
+    return h('div', { class: 'day msTab' },
+      h('section', null, h('h3', null, `📝 記録ログ `, h('small', null, `${ls.length} 件${o.view === 'span' ? '（この期間）' : ''}`)),
+        ls.length ? ls.map((l) => h('div', { class: 'row lnk', onclick: () => openLogForm(m, l.date, l) },
+          h('div', { class: 'times' }, h('b', null, l.date), ' ', h('small', null, `${o.dow(l.date)}・${logDay(m, l).toLocaleString()}日目`)),
+          h('div', { class: 'ttl' }, l.note ?? '（メモなし）', l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null))) : h('p', { class: 'empty' }, '—'),
+        h('button', { class: 'add', onclick: () => openLogForm(m, o.today) }, '＋ 今日に足す')));
+  }
+  if (o.view === 'month') {
+    const ds = days(o.from, addDays(o.from, 41));
+    const ls = logsIn(m, ds[0], ds[41]);
+    return h('div', { class: 'gridWrap' }, h('table', { class: 'month' },
+      h('thead', null, h('tr', null, Array.from({ length: 7 }, (_, i) => h('th', null, o.dow(ds[i]))))),
+      h('tbody', null, Array.from({ length: 6 }, (_, w) => h('tr', null, ds.slice(w * 7, w * 7 + 7).map((d) =>
+        h('td', { class: `mcell ${d.slice(0, 7) === o.month ? '' : 'out'} ${d === o.today ? 'today' : ''}`, onclick: () => o.goDay(d) },
+          h('div', { class: 'dn' }, String(Number(d.slice(8)))), dayNote(m, d), ls.filter((l) => l.date === d).map((l) => logLine(m, l)))))))));
+  }
+  // 週・N日・1日＝1日1行
+  const ds = o.view === 'day' ? [o.from] : days(o.from, o.to);
+  const ls = logsIn(m, ds[0], ds[ds.length - 1]);
+  return h('div', { class: 'day msTab' }, ds.map((d) => h('div', { class: `row ${d === o.today ? 'today' : ''}` },
+    h('div', { class: 'times lnk', onclick: () => o.goDay(d) }, h('b', null, d.slice(5)), ' ', h('small', null, o.dow(d)), dayNote(m, d)),
+    h('div', { class: 'ttl' }, ls.filter((l) => l.date === d).map((l) => logLine(m, l))),
+    addBtn(d))));
 }

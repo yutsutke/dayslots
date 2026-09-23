@@ -163,6 +163,8 @@ export interface Settings {
   /** 頭を畳む（端末ごと）＝スマホで表を見るとき、種目のタブと 合図・録音の行 が画面の大半を食うため。
    *  tracks＝種目のタブを1行の選び方に畳む／signal＝合図・録音の行を隠す。省略＝どちらも広げたまま */
   fold?: { tracks: boolean; signal: boolean };
+  /** ふだんは畳んでおくタブ（種目の id／記念日は 'ms:<番号>'）。畳んだタブは「ほか」から選ぶ。省略＝全部見せる（v31） */
+  tabsHidden?: string[];
   /** 🤖 BYOK＝本人の API キー（端末内だけ・サーバに送らない）。呼び先の顔ぶれは src/ai/byok.ts の PROVIDERS と揃える */
   ai?: { provider: 'anthropic' | 'gemini' | 'openrouter'; key: string; model: string };
   autoStop?: boolean;          // 「開始」で他の進行中を自動で終了する（Now Then の「次をタップで前が止まる」）。省略＝true

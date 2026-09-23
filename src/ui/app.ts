@@ -26,12 +26,14 @@ import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/
 import { aiConfigured, readGesture } from '../ai/byok';
 import { pickImages, readOnlyImage, thumbImg, putThumbDataUrl } from './photos';
 import { moveThumbsOut } from '../domain/thumbs';
-import { initMilestones, msChips, openMilestones, reload as reloadMilestones } from './milestones';
+import { initMilestones, msChips, openMilestones, reload as reloadMilestones, milestonesNow, findMilestone, msTabBody, msSummary, openLogForm, openMilestone } from './milestones';
+import { msKey, msIdOf, splitTabs } from '../domain/tabs';
+import type { Milestone } from '../domain/milestones';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v30';
+export const BUILD = 'v31';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -130,6 +132,14 @@ function range(): [YMD, YMD] {
 
 export function render(): void {
   setSunPlace(repo.db.settings.sunPlace); // ☀ の枡の境目を計算する場所
+  // 🗓 記念日のタブ＝中身はライフログの記録ログ（記録＝Db には入れない）。ライフログで消えていたら最初の種目へ
+  const msId = msIdOf(state.trackId);
+  const ms = msId != null ? findMilestone(msId) : null;
+  if (ms) {
+    const [from, to] = range();
+    fill(root, header(null, from, to, ms), dayMsBar(from), msTabBody(ms, { view: state.view, from, to, today: repo.viewToday(), weekStart: repo.db.settings.weekStart, month: state.anchor.slice(0, 7), dow: (d) => DOW_JA[dowOf(d)], goDay: (d) => { state.view = 'day'; state.anchor = d; render(); } }), footer());
+    return;
+  }
   if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   if (state.trackId === ALL) {
     const [from, to] = range();
@@ -157,8 +167,8 @@ function move(dir: 1 | -1): void {
   render();
 }
 
-function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
-  const all = track == null;
+function header(track: Track | null, from: YMD, to: YMD, ms: Milestone | null = null): HTMLElement {
+  const all = track == null && ms == null;
   const f = fold();
   // 畳む2つ＝この行はいつも出ているので、ここに置けば畳んだ後も戻せる
   const foldBtns = [
@@ -167,15 +177,22 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
   ];
   const gear = h('button', { class: 'ghost', title: '種目を足す・枡（時間帯）の境目を変える・保存場所', onclick: () => openSettings(ctx()) }, '⚙');
   // ⚠ 畳んでも**種目は変えられる**（1行の選び方に変わるだけ）＝畳んだら何もできない、を作らない
+  // タブ＝種目 → 🗓 記念日（ライフログ）。⚙ で「ふだんは畳んでおく」にしたものは「ほか」に入る
+  const allTabs = [...repo.tracks.map((t) => ({ key: t.id, label: `${t.icon} ${t.name}` })), ...milestonesNow().map((m) => ({ key: msKey(m.id), label: `🗓 ${m.title}` }))];
+  const { shown, folded } = splitTabs(allTabs, repo.db.settings.tabsHidden, state.trackId);
+  const pick = (e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v) { state.trackId = v; render(); } };
   const tabs = f.tracks
     ? h('div', { class: 'tabs folded' },
-        h('select', { class: 'trackSel', onchange: (e: Event) => { state.trackId = (e.target as HTMLSelectElement).value; render(); } },
+        h('select', { class: 'trackSel', onchange: pick },
           h('option', { value: ALL, selected: all }, '⊞ すべて'),
-          repo.tracks.map((t) => h('option', { value: t.id, selected: t.id === state.trackId }, `${t.icon} ${t.name}`))),
+          shown.map((t) => h('option', { value: t.key, selected: t.key === state.trackId }, t.label)),
+          folded.length ? h('optgroup', { label: 'ほか（ふだんは畳んでいる）' }, folded.map((t) => h('option', { value: t.key }, t.label))) : null),
         ...foldBtns, gear)
     : h('div', { class: 'tabs' },
         h('button', { class: all ? 'on' : '', title: '種目をまたいで見る（週＝日 × 種目）', onclick: () => { state.trackId = ALL; render(); } }, '⊞ すべて'),
-        repo.tracks.map((t) => h('button', { class: t.id === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.id; render(); } }, `${t.icon} ${t.name}`)),
+        shown.map((t) => h('button', { class: t.key === state.trackId ? 'on' : '', onclick: () => { state.trackId = t.key; render(); } }, t.label)),
+        folded.length ? h('select', { class: 'moreTabs', title: 'ふだんは畳んでいるタブ（⚙ → ② 残す の「タブ」で選ぶ）', onchange: pick },
+          h('option', { value: '' }, `ほか ${folded.length} ▾`), folded.map((t) => h('option', { value: t.key }, t.label))) : null,
         track ? h('span', { class: 'seg mv', title: '選んでいる種目の並びを動かす' },
           h('button', { class: 'sm', disabled: repo.tracks[0]?.id === track.id, onclick: () => { repo.moveTrack(track.id, -1); render(); } }, '‹'),
           h('button', { class: 'sm', disabled: repo.tracks[repo.tracks.length - 1]?.id === track.id, onclick: () => { repo.moveTrack(track.id, 1); render(); } }, '›')) : null,
@@ -200,13 +217,18 @@ function header(track: Track | null, from: YMD, to: YMD): HTMLElement {
     h('button', { title: '🗓 記念日（ライフログの記念日を読む・足す・直す）', onclick: () => openMilestones() }, '🗓'),
     viewToggles(),
     h('span', { class: 'sp' }),
-    track ? [
+    ms ? [
+      h('button', { title: '名前・日付・🔔 を直す（ライフログへ）', onclick: () => openMilestone(ms) }, '🗓 この記念日'),
+      h('button', { class: 'primary', title: '記録ログを足す（ライフログへ）', onclick: () => openLogForm(ms, state.anchor) }, '＋ 足す'),
+    ] : track ? [
       h('button', { onclick: () => openTemplates(ctx(), track) }, '⭐ いつもの'),
       h('button', { onclick: () => openRules(ctx(), track) }, '🔁 繰り返し'),
       h('button', { class: 'primary', onclick: () => openEntryForm(ctx(), track, null, { date: state.anchor, title: isDaily(track) ? track.name : '' }) }, '＋ 足す'),
     ] : hint('足す・⭐・🔁 は種目を選んでから'));
   // ⚠ 並び＝種目 → **合図・録音** → 見方・日送り。録音は2行目にある方が押しやすい（ゆう 2026-09-21）
-  return h('header', null, runningStrip(), tabs, signalBar(track), nav, track ? reviewBar(track, from, to) : allReviewBar(from, to), track ? null : inboxBox(), timersBox());
+  return h('header', null, runningStrip(), tabs, signalBar(track), nav,
+    ms ? h('div', { class: 'review' }, h('b', null, `🗓 ${ms.title}`), h('span', { class: 'sp' }), h('small', null, msSummary(ms, from, to, repo.viewToday()))) : track ? reviewBar(track, from, to) : allReviewBar(from, to),
+    track || ms ? null : inboxBox(), timersBox());
 }
 
 /** 「なに」を選ぶ板＝種目 → 候補（⭐ いつもの か 種目の名前）／名前を入れる。fixed があれば種目は決め打ち */

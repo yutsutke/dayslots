@@ -15,6 +15,18 @@ import { exportSqlite } from '../export/sqlite';
 import { syncer } from './app';
 import { buildReview } from '../app/review';
 import { todayYMD } from '../domain/dates';
+import { milestonesNow } from './milestones';
+import { msKey, toggleHidden } from '../domain/tabs';
+
+/** タブの一覧＝種目（並びは ↑↓ と同じ）→ 🗓 記念日。1つずつ「見せる／畳む」を切り替える */
+function tabItems(ctx: Ctx, draw: () => void): HTMLElement {
+  const st = ctx.repo.db.settings;
+  const rows = [...ctx.repo.tracks.map((t) => ({ key: t.id, label: `${t.icon} ${t.name}` })), ...milestonesNow().map((m) => ({ key: msKey(m.id), label: `🗓 ${m.title}` }))];
+  return h('div', { class: 'tabPick' }, rows.map((r) => {
+    const hid = (st.tabsHidden ?? []).includes(r.key);
+    return h('button', { class: `tg ${hid ? 'off' : 'on'}`, title: hid ? '押すと、ふだんのタブに出す' : '押すと、「ほか ▾」に畳む', onclick: () => { st.tabsHidden = toggleHidden(st.tabsHidden, r.key); void ctx.repo.persist(); draw(); ctx.render(); } }, `${hid ? '▸' : '👁'} ${r.label}`);
+  }), milestonesNow().length ? null : hint('🗓 記念日は、ライフログから読めるとここに並びます'));
+}
 
 /** N日のひと区切り＝日数と数え始める日。いま見ている日がどの区切りに入るかを、その場で見せる */
 function cycleBlock(ctx: Ctx, draw: () => void): HTMLElement {
@@ -136,6 +148,10 @@ export function openSettings(ctx: Ctx): void {
           t.archived ? h('button', { class: 'danger', title: '種目を消す（記録も消える）', onclick: () => { const n = repo.db.entries.filter((e) => e.trackId === t.id).length; if (confirm(`「${t.name}」を消しますか？ 記録 ${n} 件・⭐・🔁 も一緒に消えます（戻せません）`)) { repo.deleteTrack(t.id); draw(); } } }, '🗑') : null))),
       h('div', { class: 'inline' }, kindSel, h('button', { onclick: () => { const t = repo.addTrackFromPreset(kindSel.value as TrackKind); openTrackEditor(ctx, t, draw); } }, '＋ 種目を足す'),
         hint('例＝「運動型」で 朝散歩／夜ジム。枡はあとから自由に変えられます')),
+
+      h('h3', null, 'タブ（ふだん見せる／畳んでおく）'),
+      h('p', { class: 'hint' }, '種目と 🗓 記念日（ライフログ）のタブ。「畳む」にしたものは、上のタブの並びの「ほか ▾」から選べます。記録は消えません（見せ方だけ）。'),
+      tabItems(ctx, draw),
 
       layerHead('lay3', '③ 読む', '読むときに決めること（記録は書き換えない）'),
       h('h3', null, '週の始まり'),

@@ -267,3 +267,11 @@ table.slotsEd td .sub { display: block; font-size: 10px; }
 .msLog .n { flex: 1; }
 .msLog input:not([type=date]) { flex: 1; min-width: 10em; }
 .warn { color: #d97706; }
+/* タブ（v31）＝畳んだタブの「ほか ▾」・⚙ の見せる／畳む・🗓 記念日のタブの中 */
+.moreTabs { width: auto; max-width: 11em; }
+.tabPick { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.tabPick .tg.off { opacity: .55; }
+.msTab .row { align-items: flex-start; }
+.msTab .times { min-width: 7em; cursor: pointer; }
+.msTab .ttl { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.msLogMini { cursor: pointer; white-space: normal; }
