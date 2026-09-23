@@ -36,13 +36,13 @@ src/app/repo.ts         台帳＝画面が呼ぶ操作（✅🚫🔀・⭐・�
 src/app/review.ts       📝 振り返りの要約（AI が読む直近7日の読み物）
 src/ai/byok.ts          🤖 本人の鍵で AI を呼ぶ。呼び先の違いは PROVIDERS の1枚（Anthropic／Gemini／OpenRouter）＝足すのは1行。モデルの一覧は先方に聞く（決め打ちの表を持たない）。返事は検査してから使い、鍵はエラー文にも出さない
 src/store/              置き場：localStorage（本体）／見本データ（seed）／supabase.ts は古い口（使っていない）
-src/sync/               milestones（🗓 ライフログの記念日を読む・足す・直す口＝関数 koma-milestones）／calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
+src/sync/               milestones（🗓 ライフログの記念日を読む・足す・直す・消す口＝関数 koma-milestones）／calendar（📅 何を出すか）／target（☁ 外の写し＝Syncer・送る期間・初回は聞く）／delta（差分を作る・当てる）／drive（Google ドライブ）
 src/export/sqlite.ts    SQLite の書き出し（sql.js を書き出すときだけ読む）
 src/ui/                 app（骨・週/1日/月・すべて・合図の欄・進行中の1行）／forms（記録・⭐・🔁・📷🤖）／settings（⚙）／photos（縮小・IndexedDB＝本体とサムネの2つの棚・サムネを出す thumbImg）／milestones（🗓 一覧・1件の板・日の見出しの印・記念日のタブの中身 msTabBody）／voice（🎤）／dom／style.css
 test/                   Vitest 220 本（負のテストを含む）
 supabase/migrations/    0001（行単位の表・未適用）／0002 koma_docs・0003 review（**本番に適用済み**）
 supabase/functions/koma-store/  外の写しの関数（index.ts ＋ delta.ts＝src/sync/delta.ts の写し。検査が一致を見る）
-supabase/functions/koma-milestones/  🗓 ライフログの表 milestones・milestone_logs を読む／足す／直す（消さない・写真に触らない。**本番に置いた** v1）
+supabase/functions/koma-milestones/  🗓 ライフログの表 milestones・milestone_logs を読む／足す／直す／消す（写真の列には書かない・消すときだけ `<uuid>.jpg` の実体を消す。**本番に置いた** v2）
 capacitor.config.json, codemagic.yaml, ios/   iOS の殻（Phase 1）
 .claude/launch.json     dev サーバ（port 5276）
 ```

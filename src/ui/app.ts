@@ -33,7 +33,7 @@ import type { Milestone } from '../domain/milestones';
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v31';
+export const BUILD = 'v32';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -156,8 +156,10 @@ export function render(): void {
     : isDaily(track) ? dailyWeek(track, from, to) : weekGrid(track, from, to);
   fill(root, header(track, from, to), dayMsBar(from), body, footer());
 }
+/** 🗓 節目・🔔 は ⊞ すべて のときだけ出す（v32・ゆう）＝種目や記念日のタブでは、その種目の記録だけを見たい */
+const allMs = (d: YMD) => (state.trackId === ALL ? msChips(d) : null);
 /** 1日の見方のときだけ、その日の 🗓 節目・🔔 を見出しの下に（週・月は日の見出しに添える） */
-const dayMsBar = (d: YMD): HTMLElement | null => { if (state.view !== 'day') return null; const c = msChips(d); return c ? h('div', { class: 'msBar' }, c) : null; };
+const dayMsBar = (d: YMD): HTMLElement | null => { if (state.view !== 'day') return null; const c = allMs(d); return c ? h('div', { class: 'msBar' }, c) : null; };
 
 function move(dir: 1 | -1): void {
   if (state.view === 'list') return;
@@ -394,7 +396,7 @@ function allWeek(from: YMD, to: YMD): HTMLElement {
     h('thead', null, h('tr', null, h('th', { class: 'dcol' }),
       repo.tracks.map((t) => h('th', { class: 'lnk', onclick: () => { state.trackId = t.id; render(); } }, h('div', null, `${t.icon} ${t.name}`), h('small', null, isDaily(t) ? '一日一回' : `${t.slots.length} 枡`))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
-      h('th', { class: 'dcol' }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), msChips(d)),
+      h('th', { class: 'dcol' }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), allMs(d)),
       repo.tracks.map((t) => cell(t, d)))))));
 }
 
@@ -444,7 +446,7 @@ function weekGrid(track: Track, from: YMD, to: YMD): HTMLElement {
       cols.map((s) => h('th', null, h('div', null, `${s.icon} ${s.label}`),
         h('small', null, s.startMin == null ? (s.key === track.fallbackKey ? '受け皿' : '選んだ時だけ') : slotRange(track, s.key, today >= from && today <= to ? today : from)))))),
     h('tbody', null, days.map((d) => h('tr', { class: d === today ? 'today' : '' },
-      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null, msChips(d)),
+      h('th', { class: 'dcol', onclick: () => { state.view = 'day'; state.anchor = d; render(); } }, h('b', null, d.slice(5)), h('small', null, DOW_JA[dowOf(d)]), dayStartLabel(d, repo.dayStart, getSunPlace()) ? h('small', { class: 'ds' }, dayStartLabel(d, repo.dayStart, getSunPlace())) : null, allMs(d)),
       cols.map((s) => h('td', { class: 'cell' },
         es.filter((e) => repo.viewDate(e) === d && bucketOf(track, e) === s.key).map((e) => chip(track, e)),
         gs.filter((o) => o.date === d && bucketOfOccurrence(track, o) === s.key).map((o) => ghost(track, o)),
@@ -467,7 +469,7 @@ function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
       const e = repo.dayEntry(track.id, d);
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
-        h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)]), msChips(d)),
+        h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)]), allMs(d)),
         h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => thumbImg(p))) : null),
         h('button', { class: 'ghost', title: '時刻・メモなどの詳細', onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '…'));
     }));
@@ -539,13 +541,13 @@ function monthGrid(track: Track, from: YMD): HTMLElement {
     if (isDaily(track)) {
       const e = repo.dayEntry(track.id, d);
       return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''} ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''}` },
-        h('div', { class: 'dn', onclick: goDay }, String(Number(d.slice(8)))), msChips(d),
+        h('div', { class: 'dn', onclick: goDay }, String(Number(d.slice(8)))), allMs(d),
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
         e && dayDetail(e) ? h('small', { class: 'sub' }, dayDetail(e)) : null);
     }
     const shown = list.slice(0, 3);
     return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: goDay },
-      h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null), msChips(d),
+      h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null), allMs(d),
       shown.map((e) => { const m = primaryMinute(track, e), dur = durationOf(e); return h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` },
         show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title, show().duration && dur ? h('span', { class: 'dur' }, ` ⏱${fmtDur(dur)}`) : null,
         show().photos && e.photos.length ? thumbImg(e.photos[0], 'thumb xs') : null); }),
@@ -608,7 +610,7 @@ function allMonth(from: YMD): HTMLElement {
       return h('div', { class: `mini ${cls}` }, `${t.icon} ${t.features.done ? `${done}/${es.length}` : es.length}`);
     }).filter(Boolean);
     return h('td', { class: `mcell ${inMonth ? '' : 'out'} ${d === today ? 'today' : ''}`, onclick: () => { state.view = 'day'; state.anchor = d; render(); } },
-      h('div', { class: 'dn' }, String(Number(d.slice(8)))), msChips(d), lines.length ? lines : h('small', { class: 'sub' }, '·'));
+      h('div', { class: 'dn' }, String(Number(d.slice(8)))), allMs(d), lines.length ? lines : h('small', { class: 'sub' }, '·'));
   };
   return h('div', { class: 'gridWrap' }, h('table', { class: 'month' },
     h('thead', null, h('tr', null, Array.from({ length: 7 }, (_, i) => h('th', null, DOW_JA[(ws + i) % 7])))),

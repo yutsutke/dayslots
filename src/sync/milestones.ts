@@ -47,3 +47,18 @@ export async function saveMilestone(c: MilestoneConn, m: Omit<Milestone, 'id' | 
 export async function saveLog(c: MilestoneConn, l: { id?: number; milestoneId: number; date: string; note: string | null }): Promise<MilestoneLog> {
   return logFromRaw(await call<RawL>(c, 'log', { id: l.id, milestone_id: l.milestoneId, log_date: l.date, note: l.note }));
 }
+/** 消す＝記念日（記録ログも一緒に消える）／記録ログ1件。写真の実体も関数の側で消える */
+export async function deleteMilestone(c: MilestoneConn, id: number): Promise<void> {
+  await callDelete(c, `milestone&id=${id}`);
+}
+export async function deleteLog(c: MilestoneConn, id: number): Promise<void> {
+  await callDelete(c, `log&id=${id}`);
+}
+async function callDelete(c: MilestoneConn, q: string): Promise<void> {
+  let r: Response;
+  try { r = await fetch(url(c, q), { method: 'DELETE', headers: headers(c) }); }
+  catch { throw new Error('記念日の関数につながりませんでした'); }
+  if (r.status === 404) throw new Error('もう消えているか、関数が古いままです（koma-milestones を置き直す）');
+  if (r.status === 405) throw new Error('関数が古いままです（koma-milestones を置き直す）');
+  if (!r.ok) throw new Error(`消せませんでした（${r.status}）`);
+}
