@@ -10,7 +10,7 @@ import { eventFor } from '../sync/calendar';
 import { uid } from '../app/repo';
 import { nowMinute } from '../domain/dates';
 import { aiConfigured, readReceipt, readMeal, type ReceiptRead } from '../ai/byok';
-import { pickImages, importPhoto, imageOf, delBlob, urlOf } from './photos';
+import { pickImages, importPhoto, imageOf, delBlob, urlOf, thumbImg } from './photos';
 
 /** ⏭ 先送り＝やる日を後ろへ動かす欄。過ぎた記録の「明日」は**今日から**数える（過ぎた日の明日もまだ過去なので） */
 function postponeField(ctx: Ctx, d: Entry, close: () => void): HTMLElement {
@@ -158,7 +158,7 @@ function photoField(ctx: Ctx, track: Track, d: Entry, draw: () => void): HTMLEle
   };
   return field('📷 写真', h('div', { class: 'thumbs' },
       d.photos.map((p, i) => h('span', { class: 'thumbWrap' },
-        h('img', { class: 'thumb lg', src: p.thumb ?? p.path, alt: '', onclick: async () => { window.open(await urlOf(p), '_blank'); } }),
+        Object.assign(thumbImg(p, 'thumb lg'), { onclick: async () => { window.open(await urlOf(p), '_blank'); } }),
         h('button', { class: 'x', title: 'この写真を外す', onclick: () => { if (!confirm('この写真を外しますか？')) return; const [gone] = d.photos.splice(i, 1); if (gone.path.startsWith('idb:')) void delBlob(gone.path.slice(4)); d.photos = [...d.photos]; draw(); } }, '✕')))),
     h('div', { class: 'btns' },
       h('button', { onclick: add }, '📷 撮る／選ぶ'),
