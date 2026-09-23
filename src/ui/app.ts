@@ -24,12 +24,13 @@ import { cycleStart, cycleIndex } from '../domain/cycle';
 import { SPANS, SPAN_LABEL, spanRange, spanWeeks, spanStats, type SpanMonths } from '../domain/span';
 import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/gesture';
 import { aiConfigured, readGesture } from '../ai/byok';
-import { pickImages, readOnlyImage } from './photos';
+import { pickImages, readOnlyImage, thumbImg, putThumbDataUrl } from './photos';
+import { moveThumbsOut } from '../domain/thumbs';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v28';
+export const BUILD = 'v29';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -46,7 +47,7 @@ export async function boot(el: HTMLElement): Promise<void> {
   state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
   setSunPlace(repo.db.settings.sunPlace); state.anchor = repo.viewToday(); // 1日の始まりが日の出なら、未明はまだ「前の日」
   // ☁ 保存場所（外の写し）＝保存のたびに少し待って押し出す。開いたときは外が新しければ取り込む
-  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); },
+  syncer = new Syncer(() => repo.db, (d) => { repo.db = d; void repo.persist(); render(); void moveThumbs(); }, (msg) => { lastToast = msg; render(); }, () => { void repo.persistQuiet(); },
     async (info) => {
       if (confirm(`外に写しがあります（保存 ${info.savedAt.slice(0, 16).replace('T', ' ')}・記録 ${info.entries} 件）。\nこの端末の記録は ${info.localEntries} 件です。\n\nOK＝外の写しを取り込む（この端末のいまの内容は置き換わります）\nキャンセル＝取り込まない`)) return 'pull';
       if (confirm('では、この端末の内容を外へ送って、外の写しを置き換えますか？\n（外の写しは消えます。分からなければキャンセル）')) return 'push';
@@ -56,11 +57,16 @@ export async function boot(el: HTMLElement): Promise<void> {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void syncer.pullIfNewer(); });
   repo.onPersist = () => syncer.schedulePush();
   render();
+  void moveThumbs();
   void syncer.pullIfNewer();
   // ⏵ 進行中の経過分を1分ごとに描き直す（記録は触らない＝時刻から計算するだけ。長すぎれば OS の通知も）
   setInterval(() => { if (repo.running().length || repo.runningTimers().length) { notifyOverdue(); render(); } }, 60_000);
 }
 export let syncer: Syncer;
+/** 📷 記録に埋まったサムネを IndexedDB へ移す（v28 までの記録・古い端末から来た写し）。移せたら保存し直す＝外の写しも細る */
+async function moveThumbs(): Promise<void> {
+  try { if (await moveThumbsOut(repo.db, putThumbDataUrl)) { await repo.persist(); render(); } } catch (e) { console.warn('サムネを移せませんでした', e); }
+}
 const notified = new Set<string>();
 function notifyOverdue(): void {
   if (!(repo.db.settings.notify ?? false) || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
@@ -91,7 +97,7 @@ function extras(e: Entry, small = false, gapHere = true): (HTMLElement | null)[]
     f.duration && dur != null && dur > 0 ? h('span', { class: 'dur' }, `⏱${fmtDur(dur)}`) : null,
     gap ? h('span', { class: 'gap' }, gap) : null,
     f.note && e.note ? h('small', { class: 'sub note' }, `💬 ${e.note}`) : null,
-    f.photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, small ? 1 : 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null,
+    f.photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, small ? 1 : 3).map((p) => thumbImg(p))) : null,
   ];
 }
 
@@ -434,7 +440,7 @@ function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
       return h('div', { class: `row ${e?.doneAt ? 'done' : e?.skippedAt ? 'skip' : ''} ${d === today ? 'today' : ''}` },
         h('button', { class: 'box big', onclick: () => { repo.toggleDay(track.id, d); render(); } }, dayMark(e)),
         h('div', { class: 'times' }, h('b', null, d.slice(5)), ' ', h('small', null, DOW_JA[dowOf(d)])),
-        h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => h('img', { class: 'thumb', src: p.thumb ?? p.path, alt: '' }))) : null),
+        h('div', { class: 'ttl' }, dayDetail(e) || h('small', null, e ? '' : '—'), e?.calendar ? ' 📅' : '', e && show().photos && e.photos.length ? h('span', { class: 'thumbs' }, e.photos.slice(0, 3).map((p) => thumbImg(p))) : null),
         h('button', { class: 'ghost', title: '時刻・メモなどの詳細', onclick: () => openEntryForm(ctx(), track, e ?? null, { date: d, title: track.name }) }, '…'));
     }));
 }
@@ -514,7 +520,7 @@ function monthGrid(track: Track, from: YMD): HTMLElement {
       h('div', { class: 'dn' }, String(Number(d.slice(8))), list.length ? h('small', null, ` ${track.features.done ? `✅${list.filter((e) => e.doneAt).length}/${list.length}` : list.length}`) : null),
       shown.map((e) => { const m = primaryMinute(track, e), dur = durationOf(e); return h('div', { class: `mini ${e.doneAt ? 'done' : e.skippedAt ? 'skip' : ''}` },
         show().time && m != null ? h('span', { class: 't' }, fmtMin(m)) : null, e.title, show().duration && dur ? h('span', { class: 'dur' }, ` ⏱${fmtDur(dur)}`) : null,
-        show().photos && e.photos.length ? h('img', { class: 'thumb xs', src: e.photos[0].thumb ?? e.photos[0].path, alt: '' }) : null); }),
+        show().photos && e.photos.length ? thumbImg(e.photos[0], 'thumb xs') : null); }),
       list.length > 3 ? h('small', { class: 'sub' }, `＋${list.length - 3}`) : null,
       gl.length ? h('small', { class: 'sub ghostTxt' }, `🔁 ${gl.length}`) : null);
   };

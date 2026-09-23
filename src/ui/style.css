@@ -245,3 +245,5 @@ table.slotsEd td .sub { display: block; font-size: 10px; }
 .thumbs { display: flex; gap: 2px; flex-basis: 100%; }
 .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; background: var(--line); }
 .thumb.xs { width: 16px; height: 16px; vertical-align: middle; margin-left: 2px; }
+/* この端末に写真が無い（別の端末で撮った）ときの代わり */
+.thumb.none { display: inline-flex; align-items: center; justify-content: center; font-size: 60%; opacity: .6; }
