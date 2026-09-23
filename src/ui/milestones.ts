@@ -5,7 +5,7 @@ import { h, fill, modal, field, hint, type Child } from './dom';
 import type { YMD } from '../domain/types';
 import { todayYMD, addDays } from '../domain/dates';
 import { marksOn, rowsOf, logDay, reminderLabel, checkMilestone, type Milestone, type MilestoneLog, type Reminder } from '../domain/milestones';
-import { connected, fetchMilestones, cachedMilestones, saveMilestone, saveLog, type MilestoneConn, type MilestoneData } from '../sync/milestones';
+import { connected, fetchMilestones, cachedMilestones, saveMilestone, saveLog, deleteMilestone, deleteLog, type MilestoneConn, type MilestoneData } from '../sync/milestones';
 
 let data: MilestoneData | null = cachedMilestones();
 let lastError = '';
@@ -34,6 +34,22 @@ export function msChips(d: YMD): Child {
   }, `${x.kind === 'remind' ? '🔔' : '🗓'} ${x.title} ${x.label}`)));
 }
 
+/** 消す（v32）＝ライフログからも消える＝戻せないので、何が一緒に消えるかを言ってから。消せたら手元の一覧からも外す */
+async function removeMilestone(m: Milestone): Promise<boolean> {
+  const logs = (data?.logs ?? []).filter((l) => l.milestoneId === m.id);
+  const photos = m.photoCount + logs.reduce((n, l) => n + l.photoCount, 0);
+  if (!confirm(`「${m.title}」を消しますか？\nライフログからも消えます（戻せません）。\n記録ログ ${logs.length} 件${photos ? `・写真 ${photos} 枚` : ''}も一緒に消えます。`)) return false;
+  try { await deleteMilestone(conn()!, m.id); } catch (e) { alert((e as Error).message); return false; }
+  if (data) { data.milestones = data.milestones.filter((x) => x.id !== m.id); data.logs = data.logs.filter((l) => l.milestoneId !== m.id); }
+  onChange(); return true;
+}
+async function removeLog(m: Milestone, l: MilestoneLog): Promise<boolean> {
+  if (!confirm(`${l.date} の記録ログを消しますか？\nライフログからも消えます（戻せません）。${l.photoCount ? `\n写真 ${l.photoCount} 枚も一緒に消えます。` : ''}`)) return false;
+  try { await deleteLog(conn()!, l.id); } catch (e) { alert((e as Error).message); return false; }
+  if (data) data.logs = data.logs.filter((x) => x.id !== l.id);
+  onChange(); void m; return true;
+}
+
 // ── 一覧 ────────────────────────────────────────────────
 export function openMilestones(): void {
   const body = h('div');
@@ -58,7 +74,7 @@ export function openMilestones(): void {
           h('span', null, r.days >= 0 ? `${r.days.toLocaleString()}日目` : `あと ${(-r.days).toLocaleString()}日`, h('small', null, `（${r.cal}）`)),
           h('small', null, ` ${r.m.date}`),
           r.days >= 0 && r.years > 0 ? h('small', { class: 'next' }, r.untilNext === 0 ? ` 🎉 今日で ${r.years}年` : ` 次の ${r.years}年まで あと${r.untilNext}日`) : null)))) : null,
-      hint('正本はライフログの記念日です。ここで足す・直すと、ライフログにもそのまま出ます。消す・写真を付けるのはライフログから。'));
+      hint('正本はライフログの記念日です。ここで足す・直す・消すと、ライフログにもそのまま効きます。写真を付けるのはライフログから。'));
   };
   draw();
   void m;
@@ -98,7 +114,9 @@ export function openMilestone(src: Milestone | null, onSaved?: () => void): void
             m.close(); onSaved?.(); onChange();
           } catch (e) { alert((e as Error).message); busy = false; draw(); }
         } }, busy ? '送っています…' : '保存（ライフログへ）'),
-        h('span', { class: 'sp' }), h('button', { onclick: m.close }, '閉じる')),
+        h('span', { class: 'sp' }),
+        src ? h('button', { class: 'danger', title: 'ライフログからも消える', onclick: async () => { if (await removeMilestone(src)) { m.close(); onSaved?.(); } } }, '🗑 消す') : null,
+        h('button', { onclick: m.close }, '閉じる')),
       src ? h('div', { class: 'msLogs' },
         h('h3', null, `📝 記録ログ（${logs.length}）`),
         logs.map((l) => logRow(src, l, draw)),
@@ -129,7 +147,8 @@ function logRow(m: Milestone, l: MilestoneLog | null, redraw: () => void): HTMLE
           redraw();
         } catch (e) { alert((e as Error).message); }
       } }, l ? '保存' : '＋ 足す'),
-      l ? h('button', { class: 'ghost sm', onclick: () => show(false) }, 'やめる') : null);
+      l ? h('button', { class: 'ghost sm', onclick: () => show(false) }, 'やめる') : null,
+      l ? h('button', { class: 'ghost sm danger', title: 'ライフログからも消える', onclick: async () => { if (await removeLog(m, l)) redraw(); } }, '🗑') : null);
   };
   show(false);
   return wrap;
@@ -160,8 +179,9 @@ export function openLogForm(m: Milestone, date: YMD, log: MilestoneLog | null = 
           md.close(); onChange();
         } catch (e) { alert((e as Error).message); }
       } }, '保存（ライフログへ）'),
-      h('span', { class: 'sp' }), h('button', { onclick: md.close }, '閉じる')),
-    hint('消すのはライフログから'));
+      h('span', { class: 'sp' }),
+      log ? h('button', { class: 'danger', title: 'ライフログからも消える', onclick: async () => { if (await removeLog(m, log)) md.close(); } }, '🗑 消す') : null,
+      h('button', { onclick: md.close }, '閉じる')));
 }
 
 /** 見直しの帯に出す一言＝何日目・この範囲の記録ログ・次の周年 */
