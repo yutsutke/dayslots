@@ -26,14 +26,14 @@ import { GESTURE_DEF, GESTURE_LABEL, sayFor, type GestureRule } from '../domain/
 import { aiConfigured, readGesture } from '../ai/byok';
 import { pickImages, readOnlyImage, thumbImg, putThumbDataUrl } from './photos';
 import { moveThumbsOut } from '../domain/thumbs';
-import { initMilestones, msChips, openMilestones, reload as reloadMilestones, milestonesNow, findMilestone, msTabBody, msSummary, openLogForm, openMilestone } from './milestones';
+import { initMilestones, msChips, openMilestones, reload as reloadMilestones, milestonesNow, findMilestone, msTabBody, msLogDates, msSummary, openLogForm, openMilestone } from './milestones';
 import { msKey, msIdOf, splitTabs } from '../domain/tabs';
 import type { Milestone } from '../domain/milestones';
 /** 升目の列の並び＝1日の始まりの枡から1周（0:00 始まりは ⚙ の並びのまま） */
 const colsOf = (t: Track, d: YMD) => displaySlots(t, d, switchMinute(d, repo.dayStart, getSunPlace()));
 import type { Occurrence } from '../domain/recur';
 
-export const BUILD = 'v32';
+export const BUILD = 'v33';
 /** 種目タブの「⊞ すべて」＝種目をまたいで見る（週＝日×種目／1日＝時刻順の一本の流れ／月＝升に種目ごとの印） */
 const ALL = '*';
 export interface Ctx { repo: Repo; render: () => void; anchor: () => YMD; }
@@ -137,7 +137,7 @@ export function render(): void {
   const ms = msId != null ? findMilestone(msId) : null;
   if (ms) {
     const [from, to] = range();
-    fill(root, header(null, from, to, ms), dayMsBar(from), msTabBody(ms, { view: state.view, from, to, today: repo.viewToday(), weekStart: repo.db.settings.weekStart, month: state.anchor.slice(0, 7), dow: (d) => DOW_JA[dowOf(d)], goDay: (d) => { state.view = 'day'; state.anchor = d; render(); } }), footer());
+    fill(root, header(null, from, to, ms), dayMsBar(from), state.view === 'span' ? spanGrid(null, from, to, msLogDates(ms, from, to)) : msTabBody(ms, { view: state.view, from, to, today: repo.viewToday(), weekStart: repo.db.settings.weekStart, month: state.anchor.slice(0, 7), dow: (d) => DOW_JA[dowOf(d)], goDay: (d) => { state.view = 'day'; state.anchor = d; render(); } }), footer());
     return;
   }
   if (state.trackId !== ALL && !repo.tracks.some((t) => t.id === state.trackId)) state.trackId = repo.tracks[0]?.id ?? repo.addTrackFromPreset('todo').id;
@@ -480,17 +480,22 @@ function dailyWeek(track: Track, from: YMD, to: YMD): HTMLElement {
  *  ⚠ 記録の名前は出さない＝1年ぶんでは読めないし、ここで見たいのは「いつ・どれくらい空いたか」。
  *     名前が要るときは升を押してその日へ（月の升目と同じ作法）。
  *  ⚠ 🔁 自動の回はここでは作らない（wide()）＝見ただけで1年ぶんの記録が生まれるのを避ける */
-function spanGrid(track: Track | null, from: YMD, to: YMD): HTMLElement {
+/** 📆 長い期間のマス目。msDates を渡すと 🗓 記念日のタブ用＝記録ログのある日を「やった」として数える（v33・マス目と数え方は種目と同じ） */
+function spanGrid(track: Track | null, from: YMD, to: YMD, msDates: YMD[] | null = null): HTMLElement {
   const today = repo.viewToday(), ws = repo.db.settings.weekStart;
-  const es = track ? repo.entriesFor(track.id, from, to) : repo.tracks.flatMap((t) => repo.entriesFor(t.id, from, to));
-  // ✅ を使う種目は ✅ が立った日だけ「やった」。使わない種目（食事など）は記録があれば「やった」
-  const isDone = (e: Entry) => (repo.track(e.trackId).features.done ? Boolean(e.doneAt) : true);
   const by = new Map<YMD, { n: number; done: number; skip: number }>();
-  for (const e of es) {
-    const d = repo.viewDate(e);
-    const c = by.get(d) ?? { n: 0, done: 0, skip: 0 };
-    c.n++; if (isDone(e)) c.done++; else if (e.skippedAt) c.skip++;
-    by.set(d, c);
+  if (msDates) {
+    for (const d of msDates) { const c = by.get(d) ?? { n: 0, done: 0, skip: 0 }; c.n++; c.done++; by.set(d, c); }
+  } else {
+    const es = track ? repo.entriesFor(track.id, from, to) : repo.tracks.flatMap((t) => repo.entriesFor(t.id, from, to));
+    // ✅ を使う種目は ✅ が立った日だけ「やった」。使わない種目（食事など）は記録があれば「やった」
+    const isDone = (e: Entry) => (repo.track(e.trackId).features.done ? Boolean(e.doneAt) : true);
+    for (const e of es) {
+      const d = repo.viewDate(e);
+      const c = by.get(d) ?? { n: 0, done: 0, skip: 0 };
+      c.n++; if (isDone(e)) c.done++; else if (e.skippedAt) c.skip++;
+      by.set(d, c);
+    }
   }
   const weeks = spanWeeks(from, to);
   const st = spanStats([...by.entries()].filter(([, c]) => c.done > 0).map(([d]) => d), today);
@@ -500,7 +505,7 @@ function spanGrid(track: Track | null, from: YMD, to: YMD): HTMLElement {
     const c = by.get(d);
     const lvl = !c ? 0 : c.done >= 3 ? 3 : c.done >= 2 ? 2 : c.done >= 1 ? 1 : 0;
     const cls = d > today ? 'fut' : lvl ? `l${lvl}` : c?.skip ? 'skip' : c?.n ? 'open' : '';
-    const what = c ? `（${[c.done ? `✅${c.done}` : '', c.skip ? `🚫${c.skip}` : '', `${c.n}件`].filter(Boolean).join(' ')}）` : '';
+    const what = !c ? '' : msDates ? `（📝 記録ログ ${c.n}件）` : `（${[c.done ? `✅${c.done}` : '', c.skip ? `🚫${c.skip}` : '', `${c.n}件`].filter(Boolean).join(' ')}）`;
     return h('td', { class: `sq ${cls} ${d === today ? 'today' : ''}`, title: `${d}${what}`, onclick: () => { state.view = 'day'; state.anchor = d; render(); } });
   };
   // 月の変わり目にだけ見出しを出す（毎週出すと読めない）
@@ -514,17 +519,17 @@ function spanGrid(track: Track | null, from: YMD, to: YMD): HTMLElement {
   const pick = h('div', { class: 'btns' }, SPANS.map((m) =>
     h('button', { class: state.span === m ? 'on' : '', onclick: () => { state.span = m; render(); } }, SPAN_LABEL[m])));
   const line = st.days
-    ? `やった ${st.days}日 ／ 最後 ${st.last!.slice(5)}（${st.sinceLast === 0 ? '今日' : `${st.sinceLast}日前`}）`
+    ? `${msDates ? '📝 記録ログ' : 'やった'} ${st.days}日 ／ 最後 ${st.last!.slice(5)}（${st.sinceLast === 0 ? '今日' : `${st.sinceLast}日前`}）`
       + (st.avgGap != null ? ` ／ だいたい ${st.avgGap}日に1回` : '')
       + (st.maxGap != null ? ` ／ いちばん空いたのは ${st.maxGap}日` : '')
-    : `この${SPAN_LABEL[state.span]}に「やった」記録はありません`;
+    : msDates ? `この${SPAN_LABEL[state.span]}に記録ログはありません` : `この${SPAN_LABEL[state.span]}に「やった」記録はありません`;
 
   return h('div', { class: 'gridWrap spanWrap' }, pick, h('p', { class: 'hint spanLine' }, line),
     h('table', { class: 'spanGrid' }, h('thead', null, moHead),
       h('tbody', null, Array.from({ length: 7 }, (_, r) => h('tr', null,
         h('th', { class: 'dw' }, DOW_JA[(ws + r) % 7]),
         Array.from({ length: weeks }, (_, w) => sq(w, r)))))),
-    hint('升を押すとその日へ。色の濃さ＝その日に ✅ が何件あったか（🚫 だけの日は別の色）'));
+    hint(msDates ? '升を押すとその日へ。色の濃さ＝その日の記録ログの数' : '升を押すとその日へ。色の濃さ＝その日に ✅ が何件あったか（🚫 だけの日は別の色）'));
 }
 
 // ── 月 ───────────────────────────────────────────────────

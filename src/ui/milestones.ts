@@ -156,6 +156,8 @@ function logRow(m: Milestone, l: MilestoneLog | null, redraw: () => void): HTMLE
 
 // ── 🗓 記念日のタブ（v31）＝その記念日を1つの種目のように見る。中身はライフログの記録ログ ──────────
 export const milestonesNow = (): Milestone[] => data?.milestones ?? [];
+/** その記念日の記録ログがある日（同じ日に2件あれば2回）＝📆 長い期間のマス目に渡す */
+export const msLogDates = (m: Milestone, from: YMD, to: YMD): YMD[] => logsIn(m, from, to).map((l) => l.date);
 export const findMilestone = (id: number): Milestone | null => data?.milestones.find((m) => m.id === id) ?? null;
 const logsIn = (m: Milestone, from: YMD, to: YMD): MilestoneLog[] =>
   (data?.logs ?? []).filter((l) => l.milestoneId === m.id && l.date >= from && l.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
