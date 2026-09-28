@@ -3,8 +3,9 @@
  *  決まり（節目・リマインダー・経過日数）はライフログ web/src/week.js・milestones.js と同じ＝同じ日に同じ印が出る。
  *  ⚠ 経過日数・節目・次の周年は保存しない＝その日から数える（憲法1条）。
  */
-import type { YMD } from './types';
+import type { YMD, Minute } from './types';
 import { addDays, addMonths, daysBetween } from './dates';
+import { fmtMin, fmtDur } from './slots';
 
 /** リマインダーの1つ＝記念日の n（月／週／日）前。毎年くりかえす */
 export interface Reminder { u: 'm' | 'w' | 'd'; n: number; }
@@ -18,7 +19,9 @@ export interface Milestone {
   reminders: Reminder[];
   photoCount: number;      // 写真の数だけ（写真そのものは持ってこない＝憲法8条）
 }
-export interface MilestoneLog { id: number; milestoneId: number; date: YMD; note: string | null; photoCount: number; }
+/** 記録ログ1件。⏱ start/end/dur＝はじめ・おわり・かかった時間（分・どれも任意・v34＝ライフログの表の列 start_min/end_min/dur_min）。
+ *  ⚠ ライフログの表は「おわりと長さを同時に持たない」（時刻があれば長さは導く）＝送る前に logTimeResolve を通す。 */
+export interface MilestoneLog { id: number; milestoneId: number; date: YMD; note: string | null; photoCount: number; start: Minute | null; end: Minute | null; dur: Minute | null; }
 
 /** その日に出す印の1つ。kind＝節目（元の記念日から ±1/3/6ヶ月・N年前）／remind（🔔 本人が決めた N前） */
 export interface MilestoneMark { id: number; title: string; label: string; kind: 'mark' | 'remind'; }
@@ -97,3 +100,36 @@ export function checkMilestone(x: { title: string; date: string; time?: string |
   for (const r of x.reminders ?? []) if (!['m', 'w', 'd'].includes(r.u) || !Number.isInteger(r.n) || r.n < 1 || r.n > 366) return 'リマインダーは 1〜366 の数で';
   return null;
 }
+
+/** ⏱ 記録ログの はじめ・おわり・かかった時間を、ライフログの表の約束に合わせて決める（v34）。
+ *  ⚠ 規則はライフログ web の tdDurResolve と同じ（ライフログの記念日パネルとコマで、同じ入力が同じ姿で残る）：
+ *   ・長さが無い → そのまま
+ *   ・おわりがある → 長さは持たない（はじめが空なら おわり−長さ＝「いま終わった・2時間」→ 2時間前〜いま）
+ *   ・はじめだけ → おわり＝はじめ＋長さ（24:00 を越えるなら長さのまま）
+ *   ・どちらも無い → 長さだけ
+ *  ⚠ コマ自身の記録（Entry）は「長さ」と「終わり」を両方持てる＝あちらの決め方（durationOf）とは別。記念日の正本はライフログの表なので、表の約束に従う。 */
+export function logTimeResolve(start: Minute | null, end: Minute | null, dur: Minute | null): { start: Minute | null; end: Minute | null; dur: Minute | null } {
+  if (dur == null) return { start, end, dur: null };
+  if (end != null) return (start == null && end - dur >= 0) ? { start: end - dur, end, dur: null } : { start, end, dur: null };
+  if (start != null) return (start + dur <= 1440) ? { start, end: start + dur, dur: null } : { start, end: null, dur };
+  return { start: null, end: null, dur };
+}
+/** 送る前の検査＝おわりは はじめ より後（幅ゼロも断る）・長さは 1〜1440（ライフログの関数と同じ） */
+export function checkLogTime(r: { start: Minute | null; end: Minute | null; dur: Minute | null }): string | null {
+  if (r.start != null && r.end != null && r.end <= r.start) return 'おわりが、はじめより前（か同じ）になっています';
+  if (r.dur != null && (r.dur < 1 || r.dur > 1440)) return 'かかった時間は 1分〜24時間で';
+  return null;
+}
+/** 一覧の言い方＝「10:00〜12:00（2時間）」「10:00〜」「〜12:00」「⏱2時間」「22:00〜 ⏱5時間」（ライフログの msLogTimeWord と同じ中身） */
+export function logTimeText(l: Pick<MilestoneLog, 'start' | 'end' | 'dur'>): string {
+  const parts: string[] = [];
+  if (l.start != null && l.end != null) parts.push(`${fmtMin(l.start)}〜${l.end >= 1440 ? '24:00' : fmtMin(l.end)}（${fmtDur(l.end - l.start)}）`);
+  else if (l.start != null) parts.push(`${fmtMin(l.start)}〜`);
+  else if (l.end != null) parts.push(`〜${l.end >= 1440 ? '24:00' : fmtMin(l.end)}`);
+  if (l.dur != null) parts.push(`⏱${fmtDur(l.dur)}`);
+  return parts.join(' ');
+}
+/** その記録ログに何分かけたか（数えるだけ・保存しない）＝はじめ〜おわりがあればその差、無ければ長さ、どちらも無ければ null */
+export const logMinutes = (l: Pick<MilestoneLog, 'start' | 'end' | 'dur'>): Minute | null =>
+  (l.start != null && l.end != null && l.end > l.start ? l.end - l.start : l.dur ?? null);
+

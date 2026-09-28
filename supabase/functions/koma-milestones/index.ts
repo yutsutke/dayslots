@@ -1,7 +1,10 @@
 // koma-milestones ＝ コマから ライフログの 🗓 記念日（表 milestones・milestone_logs）を読む／足す／直す／消す Edge Function。
 //   GET                    → { milestones, logs }（写真は数だけ＝photo_count。写真そのものは渡さない）
 //   POST ?op=save  {id?, title, event_date, event_time?, note?, label?, reminders?} → 保存した行（id があれば直す・無ければ足す）
-//   POST ?op=log   {id?, milestone_id, log_date, note?}                              → 保存した記録ログの行
+//   POST ?op=log   {id?, milestone_id, log_date, note?, start_min?, end_min?, dur_min?} → 保存した記録ログの行
+//                  ⏱ v3（2026-09-28）＝はじめ・おわり・かかった時間（分・どれも任意）。**送られたキーだけ書く**（古いコマの保存が消さない）。
+//                  ⚠ 表の約束＝おわりと長さを同時に持たない（ライフログ migration 20260928120000 の CHECK）＝先に畳んで 500 にしない。
+//                  ⚠ ライフログの migration を当ててから置く（先に置くと記録ログの読みが全部落ちる＝LOG_COLS が新しい列を名指しする）。
 //   DELETE ?op=milestone&id=N → 記念日を消す（記録ログも一緒に消える＝表の決まり on delete cascade）＋写真の実体も消す
 //   DELETE ?op=log&id=N       → 記録ログを1件消す＋写真の実体も消す
 //   守り＝ヘッダ x-koma-secret が Secret KOMA_SECRET と一致するときだけ（koma-store と同じ合言葉）
@@ -18,7 +21,19 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-koma-secret, authorization, apikey', 'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS' };
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json', ...CORS } });
 const COLS = 'id, title, event_date, event_time, note, label, reminders, photos';
-const LOG_COLS = 'id, milestone_id, log_date, note, photos';
+const LOG_COLS = 'id, milestone_id, log_date, note, photos, start_min, end_min, dur_min';
+/** ⏱ 時刻（分）＝はじめ 0..1439・おわり 0..1440。空は null（Number(null)===0 で 00:00 に化けない）・範囲の外は undefined（呼ぶ側が断る） */
+const logMin = (v: unknown, max: number): number | null | undefined => {
+  if (v === '' || v == null) return null;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 0 && n <= max ? n : undefined;
+};
+/** ⏱ かかった時間（分）＝1〜1440。0分と範囲の外は null（丸めて「24時間」という嘘にしない＝ライフログと同じ） */
+const logDur = (v: unknown): number | null => {
+  if (v === '' || v == null) return null;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 1 && n <= 1440 ? n : null;
+};
 const YMD = /^\d{4}-\d{2}-\d{2}$/, HM = /^\d{2}:\d{2}(:\d{2})?$/;
 const KNOWN_OPS = ['save', 'log', 'milestone'];
 const BUCKET = 'journal-photos'; // ライフログの写真の置き場（非公開・直下に <uuid>.jpg）
@@ -72,7 +87,14 @@ Deno.serve(async (req) => {
     const b = await req.json().catch(() => null) as Record<string, unknown> | null;
     const mid = Number(b?.milestone_id), date = b?.log_date;
     if (!b || !Number.isInteger(mid) || typeof date !== 'string' || !YMD.test(date)) return json({ error: 'bad request' }, 400);
-    const row = { milestone_id: mid, log_date: date, note: text(b.note, 4000) };
+    const row: Record<string, unknown> = { milestone_id: mid, log_date: date, note: text(b.note, 4000) };
+    // ⏱ はじめ・おわり・かかった時間＝送られたキーだけ（ライフログの milestones 関数と同じ規則）
+    if ('start_min' in b) { const v = logMin(b.start_min, 1439); if (v === undefined) return json({ error: 'はじめの時刻の形が違います' }, 400); row.start_min = v; }
+    if ('end_min' in b) { const v = logMin(b.end_min, 1440); if (v === undefined) return json({ error: 'おわりの時刻の形が違います' }, 400); row.end_min = v; }
+    if ('dur_min' in b) row.dur_min = logDur(b.dur_min);
+    if (row.end_min != null) row.dur_min = null;                                  // おわりがあれば長さは時刻から導く
+    else if (row.dur_min != null && !('end_min' in row)) row.end_min = null;      // 長さだけ言った＝古いおわりを外す
+    if (row.start_min != null && row.end_min != null && (row.end_min as number) <= (row.start_min as number)) return json({ error: 'おわりは はじめ より後の時刻にしてください' }, 400);
     const q = b.id != null
       ? sb.from('milestone_logs').update({ ...row, updated_at: new Date().toISOString() }).eq('id', Number(b.id)).eq('milestone_id', mid).select(LOG_COLS).single()
       : sb.from('milestone_logs').insert(row).select(LOG_COLS).single();

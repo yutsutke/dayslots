@@ -5,7 +5,9 @@
 import type { Milestone, MilestoneLog, Reminder } from '../domain/milestones';
 
 export interface MilestoneConn { supabaseUrl?: string; supabaseSecret?: string; }
-export interface MilestoneData { milestones: Milestone[]; logs: MilestoneLog[]; readAt: string; }
+/** logTime＝関数が記録ログの ⏱ 時刻の列を返す版か（v34）。true／false／null＝まだ分からない（記録ログが1件も無い）。
+ *  ⚠ 古い関数（koma-milestones v2）に時刻を送ると、知らないキーを黙って捨てる＝入れたのに消えた、になる＝欄ごと出さない。 */
+export interface MilestoneData { milestones: Milestone[]; logs: MilestoneLog[]; readAt: string; logTime?: boolean | null; }
 
 const CACHE = 'dayslots.milestones';
 export const connected = (c: MilestoneConn | undefined): boolean => Boolean(c?.supabaseUrl && c?.supabaseSecret);
@@ -13,13 +15,17 @@ const url = (c: MilestoneConn, op?: string) => `${(c.supabaseUrl ?? '').replace(
 const headers = (c: MilestoneConn) => ({ 'content-type': 'application/json', 'x-koma-secret': c.supabaseSecret ?? '' });
 
 type RawM = { id: number; title: string; event_date: string; event_time: string | null; note: string | null; label: string | null; reminders: unknown; photo_count?: number };
-type RawL = { id: number; milestone_id: number; log_date: string; note: string | null; photo_count?: number };
+type RawL = { id: number; milestone_id: number; log_date: string; note: string | null; photo_count?: number; start_min?: number | null; end_min?: number | null; dur_min?: number | null };
+/** ⏱ 時刻の列が来ているか＝行に start_min のキーがあるか（🥫 ライフログの txStockOk と同じ流儀）。行が無ければ分からない＝null */
+export const logTimeOf = (logs: RawL[]): boolean | null => (logs.length ? 'start_min' in logs[0] : null);
+const minOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 /** 関数の返事を、コマの言葉に直す（時刻は HH:MM まで・リマインダーは形の合うものだけ） */
 export function fromRaw(m: RawM): Milestone {
   const rem = Array.isArray(m.reminders) ? (m.reminders as Reminder[]).filter((r) => r && ['m', 'w', 'd'].includes(r.u) && Number.isInteger(r.n) && r.n >= 1) : [];
   return { id: m.id, title: m.title, date: m.event_date, time: m.event_time ? m.event_time.slice(0, 5) : null, note: m.note, label: m.label, reminders: rem, photoCount: m.photo_count ?? 0 };
 }
-export const logFromRaw = (l: RawL): MilestoneLog => ({ id: l.id, milestoneId: l.milestone_id, date: l.log_date, note: l.note, photoCount: l.photo_count ?? 0 });
+export const logFromRaw = (l: RawL): MilestoneLog => ({ id: l.id, milestoneId: l.milestone_id, date: l.log_date, note: l.note, photoCount: l.photo_count ?? 0,
+  start: minOrNull(l.start_min), end: minOrNull(l.end_min), dur: minOrNull(l.dur_min) });
 
 async function call<T>(c: MilestoneConn, op: string | undefined, body?: unknown): Promise<T> {
   let r: Response;
@@ -33,7 +39,7 @@ async function call<T>(c: MilestoneConn, op: string | undefined, body?: unknown)
 
 export async function fetchMilestones(c: MilestoneConn): Promise<MilestoneData> {
   const b = await call<{ milestones: RawM[]; logs: RawL[] }>(c, undefined);
-  const d: MilestoneData = { milestones: b.milestones.map(fromRaw), logs: b.logs.map(logFromRaw), readAt: new Date().toISOString() };
+  const d: MilestoneData = { milestones: b.milestones.map(fromRaw), logs: b.logs.map(logFromRaw), readAt: new Date().toISOString(), logTime: logTimeOf(b.logs) };
   try { localStorage.setItem(CACHE, JSON.stringify(d)); } catch { /* 控えられなくても表示はできる */ }
   return d;
 }
@@ -44,8 +50,15 @@ export async function saveMilestone(c: MilestoneConn, m: Omit<Milestone, 'id' | 
   const raw = await call<RawM>(c, 'save', { id: m.id, title: m.title, event_date: m.date, event_time: m.time, note: m.note, label: m.label, reminders: m.reminders });
   return fromRaw(raw);
 }
-export async function saveLog(c: MilestoneConn, l: { id?: number; milestoneId: number; date: string; note: string | null }): Promise<MilestoneLog> {
-  return logFromRaw(await call<RawL>(c, 'log', { id: l.id, milestone_id: l.milestoneId, log_date: l.date, note: l.note }));
+/** 記録ログの保存の本文。⏱ time は関数が列を知っているときだけ渡す（渡さなければキーごと送らない＝関数は入っている時刻を消さない）。
+ *  ⚠ 渡すなら3つとも送る＝空にしたときは null で外す（送らないと「消したのに残る」） */
+export function logBody(l: { id?: number; milestoneId: number; date: string; note: string | null; time?: { start: number | null; end: number | null; dur: number | null } }): Record<string, unknown> {
+  const b: Record<string, unknown> = { id: l.id, milestone_id: l.milestoneId, log_date: l.date, note: l.note };
+  if (l.time) Object.assign(b, { start_min: l.time.start, end_min: l.time.end, dur_min: l.time.dur });
+  return b;
+}
+export async function saveLog(c: MilestoneConn, l: Parameters<typeof logBody>[0]): Promise<MilestoneLog> {
+  return logFromRaw(await call<RawL>(c, 'log', logBody(l)));
 }
 /** 消す＝記念日（記録ログも一緒に消える）／記録ログ1件。写真の実体も関数の側で消える */
 export async function deleteMilestone(c: MilestoneConn, id: number): Promise<void> {

@@ -264,7 +264,11 @@ table.slotsEd td .sub { display: block; font-size: 10px; }
 .msLogs { margin-top: 12px; }
 .msLog { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; border-top: 1px solid var(--line); }
 .msLog .d { min-width: 10em; }
-.msLog .n { flex: 1; }
+.msLog .n { flex: 1; min-width: 8em; }
+/* ⏱ 記録ログの時刻（v34）＝日付のまとまりの2行目（メモの列を細くしない）・まとまりで折り返す */
+.msTime { display: block; white-space: nowrap; color: var(--accent); }
+.msLogMini .t, .row .msTime { color: var(--accent); }
+.row .times .msTime { display: inline-block; }
 .msLog input:not([type=date]) { flex: 1; min-width: 10em; }
 .warn { color: #d97706; }
 /* タブ（v31）＝畳んだタブの「ほか ▾」・⚙ の見せる／畳む・🗓 記念日のタブの中 */

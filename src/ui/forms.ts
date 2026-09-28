@@ -41,7 +41,7 @@ const originButtons = (get: () => unknown, set: (v: string | undefined) => void)
     h('button', { class: get() === k ? 'on' : '', onclick: () => set(get() === k ? undefined : k) }, l)));
 
 /** ⏱ 何分＝始まり・終わりと無関係に長さだけ入れる欄。0 から5分刻み（▲▼）。＋30分／＋1時間／＋3時間 の押しボタンで足す。両方入っていれば「計算だと N分」を添える */
-const durInput = (get: () => number | null | undefined, set: (v: number | null) => void, computed: number | null) =>
+export const durInput = (get: () => number | null | undefined, set: (v: number | null) => void, computed: number | null) =>
   h('span', { class: 'inline durIn' }, '⏱',
     h('input', { type: 'number', min: 0, step: 5, placeholder: '分', value: get() ?? '', style: { width: '4.5em' }, oninput: (e: Event) => { const v = Number((e.target as HTMLInputElement).value); set(v > 0 ? v : null); } }), '分',
     ([[30, '＋30分'], [60, '＋1時間'], [180, '＋3時間']] as const).map(([n, l]) => h('button', { class: 'ghost sm', onclick: () => set((get() ?? 0) + n) }, l)),

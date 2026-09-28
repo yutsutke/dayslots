@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { marksOn, rowOf, rowsOf, calDiff, calText, logDay, checkMilestone, type Milestone } from '../src/domain/milestones';
-import { fromRaw } from '../src/sync/milestones';
+import { marksOn, rowOf, rowsOf, calDiff, calText, logDay, checkMilestone, logTimeResolve, checkLogTime, logTimeText, logMinutes, type Milestone } from '../src/domain/milestones';
+import { fromRaw, logFromRaw, logTimeOf, logBody } from '../src/sync/milestones';
 
 const ms = (id: number, date: string, more: Partial<Milestone> = {}): Milestone => ({ id, title: `m${id}`, date, time: null, note: null, label: null, reminders: [], photoCount: 0, ...more });
 const labels = (d: string, list: Milestone[]) => marksOn(d, list).map((x) => `${x.kind}:${x.title}:${x.label}`);
@@ -65,7 +65,7 @@ describe('一覧＝N日目／あとN日・次の周年（保存しない・数�
     expect(calText(calDiff('2026-09-23', '2026-09-23'))).toBe('0日');
   });
   it('記録ログは記念日の当日が 0日目', () => {
-    expect(logDay(ms(1, '2026-09-01'), { id: 1, milestoneId: 1, date: '2026-09-11', note: null, photoCount: 0 })).toBe(10);
+    expect(logDay(ms(1, '2026-09-01'), { id: 1, milestoneId: 1, date: '2026-09-11', note: null, photoCount: 0, start: null, end: null, dur: null })).toBe(10);
   });
 });
 
@@ -82,3 +82,66 @@ describe('送る前の検査・返事の読み方', () => {
     expect(m).toEqual({ id: 9, title: 't', date: '2020-01-01', time: '09:30', note: null, label: '旅行', reminders: [{ u: 'w', n: 1 }], photoCount: 3 });
   });
 });
+
+describe('⏱ 記録ログの はじめ・おわり・かかった時間（v34＝ライフログの表の約束＝tdDurResolve と同じ規則）', () => {
+  const R = (a: number | null, b: number | null, d: number | null) => logTimeResolve(a, b, d);
+  it('長さが無ければ何も変えない', () => {
+    expect(R(600, 630, null)).toEqual({ start: 600, end: 630, dur: null });
+    expect(R(null, null, null)).toEqual({ start: null, end: null, dur: null });
+  });
+  it('長さだけ＝長さだけ残す（本番の 9/27「高尾山 … 2時間程度」の形）', () => {
+    expect(R(null, null, 120)).toEqual({ start: null, end: null, dur: 120 });
+  });
+  it('はじめ＋長さ＝おわりを決めて長さは持たない／おわりだけ＋長さ＝はじめを決める', () => {
+    expect(R(600, null, 120)).toEqual({ start: 600, end: 720, dur: null });
+    expect(R(null, 720, 120)).toEqual({ start: 600, end: 720, dur: null });
+  });
+  it('はじめもおわりもあれば長さは持たない（表は同時に持てない）', () => {
+    expect(R(600, 720, 180)).toEqual({ start: 600, end: 720, dur: null });
+  });
+  it('24:00 を越えるなら長さのまま・おわりより長い長さは はじめ を作らない', () => {
+    expect(R(1400, null, 60)).toEqual({ start: 1400, end: null, dur: 60 });
+    expect(R(null, 20, 45)).toEqual({ start: null, end: 20, dur: null });
+    expect(R(1410, null, 30)).toEqual({ start: 1410, end: 1440, dur: null });
+  });
+  it('おわりが はじめ より前・同じは止める／長さは 1〜1440', () => {
+    expect(checkLogTime({ start: 720, end: 600, dur: null })).not.toBeNull();
+    expect(checkLogTime({ start: 600, end: 600, dur: null })).not.toBeNull();
+    expect(checkLogTime({ start: null, end: null, dur: 2000 })).not.toBeNull();
+    expect(checkLogTime({ start: 600, end: 720, dur: null })).toBeNull();
+    expect(checkLogTime({ start: null, end: null, dur: null })).toBeNull();
+  });
+  it('言い方＝ライフログの一覧と同じ中身', () => {
+    expect(logTimeText({ start: 480, end: 870, dur: null })).toBe('08:00〜14:30（6時間30分）');
+    expect(logTimeText({ start: null, end: null, dur: 120 })).toBe('⏱2時間');
+    expect(logTimeText({ start: 540, end: null, dur: null })).toBe('09:00〜');
+    expect(logTimeText({ start: null, end: 1020, dur: null })).toBe('〜17:00');
+    expect(logTimeText({ start: 1320, end: null, dur: 300 })).toBe('22:00〜 ⏱5時間');
+    expect(logTimeText({ start: 1380, end: 1440, dur: null })).toBe('23:00〜24:00（1時間）');
+    expect(logTimeText({ start: null, end: null, dur: null })).toBe('');
+  });
+  it('何分かけたか（数えるだけ）＝時刻の差 → 無ければ長さ → 無ければ null', () => {
+    expect(logMinutes({ start: 600, end: 720, dur: null })).toBe(120);
+    expect(logMinutes({ start: null, end: null, dur: 45 })).toBe(45);
+    expect(logMinutes({ start: 600, end: null, dur: null })).toBeNull();
+  });
+});
+
+describe('⏱ 関数の返事と本文（古い関数には時刻を送らない）', () => {
+  it('新しい関数の行＝時刻を読む／古い関数の行（キーが無い）＝null', () => {
+    expect(logFromRaw({ id: 1, milestone_id: 2, log_date: '2026-09-27', note: 'x', photo_count: 0, start_min: 600, end_min: 720, dur_min: null }))
+      .toEqual({ id: 1, milestoneId: 2, date: '2026-09-27', note: 'x', photoCount: 0, start: 600, end: 720, dur: null });
+    expect(logFromRaw({ id: 1, milestone_id: 2, log_date: '2026-09-27', note: 'x' })).toMatchObject({ start: null, end: null, dur: null });
+  });
+  it('版の見分け＝行に start_min のキーがあるか・行が無ければ分からない（null）', () => {
+    expect(logTimeOf([{ id: 1, milestone_id: 2, log_date: 'd', note: null, start_min: null }])).toBe(true);
+    expect(logTimeOf([{ id: 1, milestone_id: 2, log_date: 'd', note: null }])).toBe(false);
+    expect(logTimeOf([])).toBeNull();
+  });
+  it('🚨 時刻を渡さなければキーごと送らない（関数は入っている時刻を消さない）・渡すなら3つとも（空は null で外す）', () => {
+    expect(logBody({ milestoneId: 2, date: '2026-09-27', note: 'x' })).toEqual({ id: undefined, milestone_id: 2, log_date: '2026-09-27', note: 'x' });
+    expect(logBody({ id: 5, milestoneId: 2, date: '2026-09-27', note: null, time: { start: null, end: null, dur: 120 } }))
+      .toEqual({ id: 5, milestone_id: 2, log_date: '2026-09-27', note: null, start_min: null, end_min: null, dur_min: 120 });
+  });
+});
+
