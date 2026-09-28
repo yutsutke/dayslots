@@ -1,10 +1,12 @@
 /* 🗓 記念日の画面＝一覧（N日たった／あとN日・次の周年）と、1件の板（直す・🔔・記録ログ）。升目の日の見出しに節目と 🔔 の印。
  *  読み書きの先はライフログの表（src/sync/milestones.ts）。決まりは src/domain/milestones.ts＝画面には書かない。
  */
-import { h, fill, modal, field, hint, type Child } from './dom';
+import { h, fill, modal, field, hint, timeInput, type Child } from './dom';
+import { durInput } from './forms';
 import type { YMD } from '../domain/types';
 import { todayYMD, addDays } from '../domain/dates';
-import { marksOn, rowsOf, logDay, reminderLabel, checkMilestone, type Milestone, type MilestoneLog, type Reminder } from '../domain/milestones';
+import { marksOn, rowsOf, logDay, reminderLabel, checkMilestone, logTimeResolve, checkLogTime, logTimeText, logMinutes, type Milestone, type MilestoneLog, type Reminder } from '../domain/milestones';
+import { fmtDur } from '../domain/slots';
 import { connected, fetchMilestones, cachedMilestones, saveMilestone, saveLog, deleteMilestone, deleteLog, type MilestoneConn, type MilestoneData } from '../sync/milestones';
 
 let data: MilestoneData | null = cachedMilestones();
@@ -125,14 +127,16 @@ export function openMilestone(src: Milestone | null, onSaved?: () => void): void
   draw();
 }
 
-/** 記録ログの1行（null＝新しく足す行）。押すと直せる */
+/** 記録ログの1行（null＝新しく足す行）。押すと直せる。
+ *  ⏱ v34＝時刻を入れられる版では、直すのは1件の板（openLogForm）＝はじめ・おわり・かかった時間まで1行に並べると狭い */
 function logRow(m: Milestone, l: MilestoneLog | null, redraw: () => void): HTMLElement {
   const x = { date: l?.date ?? todayYMD(), note: l?.note ?? '' };
   const wrap = h('div', { class: 'msLog' });
   const show = (editing: boolean) => {
     if (!editing && l) {
-      fill(wrap, h('span', { class: 'd' }, l.date, h('small', null, ` ${logDay(m, l).toLocaleString()}日目`)), h('span', { class: 'n' }, l.note ?? ''), l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null,
-        h('button', { class: 'ghost sm', onclick: () => show(true) }, '直す'));
+      const tw = logTimeText(l);
+      fill(wrap, h('span', { class: 'd' }, l.date, h('small', null, ` ${logDay(m, l).toLocaleString()}日目`), tw ? h('small', { class: 'msTime' }, tw) : null), h('span', { class: 'n' }, l.note ?? ''), l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null,
+        h('button', { class: 'ghost sm', onclick: () => (data?.logTime ? openLogForm(m, l.date, l, redraw) : show(true)) }, '直す'));
       return;
     }
     fill(wrap,
@@ -147,6 +151,7 @@ function logRow(m: Milestone, l: MilestoneLog | null, redraw: () => void): HTMLE
           redraw();
         } catch (e) { alert((e as Error).message); }
       } }, l ? '保存' : '＋ 足す'),
+      !l && data?.logTime ? h('button', { class: 'ghost sm', title: 'はじめ・おわり・かかった時間も入れる', onclick: () => openLogForm(m, x.date, null, redraw, x.note) }, '⏱ 詳しく') : null,
       l ? h('button', { class: 'ghost sm', onclick: () => show(false) }, 'やめる') : null,
       l ? h('button', { class: 'ghost sm danger', title: 'ライフログからも消える', onclick: async () => { if (await removeLog(m, l)) redraw(); } }, '🗑') : null);
   };
@@ -162,35 +167,55 @@ export const findMilestone = (id: number): Milestone | null => data?.milestones.
 const logsIn = (m: Milestone, from: YMD, to: YMD): MilestoneLog[] =>
   (data?.logs ?? []).filter((l) => l.milestoneId === m.id && l.date >= from && l.date <= to).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
 
-/** 記録ログを1件足す／直す板（升目の ＋ や行から） */
-export function openLogForm(m: Milestone, date: YMD, log: MilestoneLog | null = null): void {
-  const x = { date: log?.date ?? date, note: log?.note ?? '' };
+/** 記録ログを1件足す／直す板（升目の ＋ や行から）。after＝保存・削除のあとに呼ぶ（記念日の板の一覧を描き直す）
+ *  ⏱ v34＝はじめ・おわり・かかった時間（どれも任意）。関数が列を知っている版のときだけ出して送る（data.logTime）。
+ *  ⚠ 送る姿は logTimeResolve が決める＝ライフログの表の約束（おわりと長さを同時に持たない）。 */
+export function openLogForm(m: Milestone, date: YMD, log: MilestoneLog | null = null, after?: () => void, note0 = ''): void {
+  const x = { date: log?.date ?? date, note: log?.note ?? note0, start: log?.start ?? null, end: log?.end ?? null, dur: log?.dur ?? null };
   const body = h('div');
   const md = modal(`🗓 ${m.title}${log ? '（記録ログを直す）' : 'に記録ログを足す'}`, body);
-  fill(body,
-    field('日付', h('input', { type: 'date', value: x.date, onchange: (e: Event) => { x.date = (e.target as HTMLInputElement).value; } })),
-    field('メモ', h('textarea', { rows: 3, value: x.note, placeholder: 'この日のこと', oninput: (e: Event) => { x.note = (e.target as HTMLTextAreaElement).value; } })),
-    log?.photoCount ? hint(`📷 写真 ${log.photoCount} 枚はライフログで見られます`) : null,
-    h('div', { class: 'actions' },
-      h('button', { class: 'primary', onclick: async () => {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) { alert('日付を入れてください'); return; }
-        if (!log && !x.note.trim()) { alert('なにを残すか書いてください'); return; }
-        try {
-          const saved = await saveLog(conn()!, { id: log?.id, milestoneId: m.id, date: x.date, note: x.note.trim() || null });
-          if (data) { const i = data.logs.findIndex((y) => y.id === saved.id); if (i < 0) data.logs.push(saved); else data.logs[i] = saved; }
-          md.close(); onChange();
-        } catch (e) { alert((e as Error).message); }
-      } }, '保存（ライフログへ）'),
-      h('span', { class: 'sp' }),
-      log ? h('button', { class: 'danger', title: 'ライフログからも消える', onclick: async () => { if (await removeLog(m, log)) md.close(); } }, '🗑 消す') : null,
-      h('button', { onclick: md.close }, '閉じる')));
+  const timeOn = data?.logTime === true;
+  const draw = () => {
+    const r = logTimeResolve(x.start, x.end, x.dur);
+    const err = checkLogTime(r), tw = logTimeText(r);
+    fill(body,
+      field('日付', h('input', { type: 'date', value: x.date, onchange: (e: Event) => { x.date = (e.target as HTMLInputElement).value; } })),
+      timeOn ? field('はじめ〜おわり', h('div', { class: 'inline' },
+        timeInput(x.start, (v) => { x.start = v; draw(); }), '〜', timeInput(x.end, (v) => { x.end = v; draw(); }),
+        x.start != null || x.end != null ? h('button', { class: 'ghost sm', title: '時刻を空にする', onclick: () => { x.start = null; x.end = null; draw(); } }, '✕') : null)) : null,
+      timeOn ? field('⏱ かかった時間', durInput(() => x.dur, (v) => { x.dur = v; draw(); }, x.start != null && x.end != null && x.end > x.start ? x.end - x.start : null)) : null,
+      timeOn ? hint(err ? `⚠ ${err}`
+        : tw ? `このように残ります：${tw}${r.start != null && r.end != null ? '（長さは時刻から数えます）' : ''}`
+        : 'はじめ・おわり・かかった時間は、どれも任意です（時刻を覚えていなくても、長さだけ残せます）') : null,
+      data?.logTime === false ? hint('⏱ 時刻とかかった時間は、関数 koma-milestones を新しくすると入れられます') : null,
+      field('メモ', h('textarea', { rows: 3, value: x.note, placeholder: 'この日のこと', oninput: (e: Event) => { x.note = (e.target as HTMLTextAreaElement).value; } })),
+      log?.photoCount ? hint(`📷 写真 ${log.photoCount} 枚はライフログで見られます`) : null,
+      h('div', { class: 'actions' },
+        h('button', { class: 'primary', onclick: async () => {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) { alert('日付を入れてください'); return; }
+          const tr = timeOn ? logTimeResolve(x.start, x.end, x.dur) : null;
+          if (!log && !x.note.trim() && !(tr && (tr.start != null || tr.end != null || tr.dur != null))) { alert('なにを残すか書いてください（メモか時刻）'); return; }
+          if (tr) { const e2 = checkLogTime(tr); if (e2) { alert(e2); return; } }
+          try {
+            const saved = await saveLog(conn()!, { id: log?.id, milestoneId: m.id, date: x.date, note: x.note.trim() || null, time: tr ?? undefined });
+            if (data) { const i = data.logs.findIndex((y) => y.id === saved.id); if (i < 0) data.logs.push(saved); else data.logs[i] = saved; }
+            md.close(); after?.(); onChange();
+          } catch (e) { alert((e as Error).message); }
+        } }, '保存（ライフログへ）'),
+        h('span', { class: 'sp' }),
+        log ? h('button', { class: 'danger', title: 'ライフログからも消える', onclick: async () => { if (await removeLog(m, log)) { md.close(); after?.(); } } }, '🗑 消す') : null,
+        h('button', { onclick: md.close }, '閉じる')));
+  };
+  draw();
 }
 
-/** 見直しの帯に出す一言＝何日目・この範囲の記録ログ・次の周年 */
+/** 見直しの帯に出す一言＝何日目・この範囲の記録ログ（⏱ 時間を入れた回の合計）・次の周年 */
 export function msSummary(m: Milestone, from: YMD, to: YMD, today: YMD): string {
   const r = rowsOf([m], today)[0];
+  const mins = logsIn(m, from, to).map(logMinutes).filter((v): v is number => v != null);
   return [r.days >= 0 ? `${r.days.toLocaleString()}日目（${r.cal}）` : `あと ${(-r.days).toLocaleString()}日`,
     `📝 この範囲 ${logsIn(m, from, to).length} 件／全部 ${(data?.logs ?? []).filter((l) => l.milestoneId === m.id).length} 件`,
+    mins.length ? `⏱ 合計 ${fmtDur(mins.reduce((a, b) => a + b, 0))}（時間を入れた ${mins.length} 回）` : '',
     r.days >= 0 && r.years > 0 ? (r.untilNext === 0 ? `🎉 今日で ${r.years}年` : `次の ${r.years}年まで あと${r.untilNext}日`) : ''].filter(Boolean).join(' · ');
 }
 
@@ -202,9 +227,11 @@ function dayNote(m: Milestone, d: YMD): Child {
   for (const x of marksOn(d, [m])) out.push(h('span', { class: `msChip ${x.kind}` }, `${x.kind === 'remind' ? '🔔' : '🗓'} ${x.label}`));
   return out.length ? h('span', { class: 'msMarks' }, out) : null;
 }
-const logLine = (m: Milestone, l: MilestoneLog): HTMLElement =>
-  h('div', { class: 'mini msLogMini', title: '押すと直す', onclick: (e: Event) => { e.stopPropagation(); openLogForm(m, l.date, l); } },
-    l.note ?? '（メモなし）', l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null);
+const logLine = (m: Milestone, l: MilestoneLog): HTMLElement => {
+  const tw = logTimeText(l);
+  return h('div', { class: 'mini msLogMini', title: '押すと直す', onclick: (e: Event) => { e.stopPropagation(); openLogForm(m, l.date, l); } },
+    tw ? h('span', { class: 't' }, `${tw} `) : null, l.note ?? (tw ? '' : '（メモなし）'), l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null);
+};
 
 export interface MsViewOpts { view: 'week' | 'day' | 'month' | 'list' | 'cycle' | 'span'; from: YMD; to: YMD; today: YMD; weekStart: 0 | 1; month: string; dow: (d: YMD) => string; goDay: (d: YMD) => void; }
 /** 記念日のタブの中身。週・N日＝1日1行／1日＝その日／月＝升目／リスト・長い期間＝記録ログの並び */
@@ -217,7 +244,7 @@ export function msTabBody(m: Milestone, o: MsViewOpts): HTMLElement {
     return h('div', { class: 'day msTab' },
       h('section', null, h('h3', null, `📝 記録ログ `, h('small', null, `${ls.length} 件${o.view === 'span' ? '（この期間）' : ''}`)),
         ls.length ? ls.map((l) => h('div', { class: 'row lnk', onclick: () => openLogForm(m, l.date, l) },
-          h('div', { class: 'times' }, h('b', null, l.date), ' ', h('small', null, `${o.dow(l.date)}・${logDay(m, l).toLocaleString()}日目`)),
+          h('div', { class: 'times' }, h('b', null, l.date), ' ', h('small', null, `${o.dow(l.date)}・${logDay(m, l).toLocaleString()}日目`), logTimeText(l) ? h('small', { class: 'msTime' }, ` ${logTimeText(l)}`) : null),
           h('div', { class: 'ttl' }, l.note ?? '（メモなし）', l.photoCount ? h('small', null, ` 📷${l.photoCount}`) : null))) : h('p', { class: 'empty' }, '—'),
         h('button', { class: 'add', onclick: () => openLogForm(m, o.today) }, '＋ 今日に足す')));
   }
