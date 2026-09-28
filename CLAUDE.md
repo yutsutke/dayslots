@@ -42,7 +42,7 @@ src/ui/                 app（骨・週/1日/月・すべて・合図の欄・�
 test/                   Vitest 237 本（負のテストを含む・komaMilestonesFn＝関数 koma-milestones を実ソースのまま偽の DB で起動）
 supabase/migrations/    0001（行単位の表・未適用）／0002 koma_docs・0003 review（**本番に適用済み**）
 supabase/functions/koma-store/  外の写しの関数（index.ts ＋ delta.ts＝src/sync/delta.ts の写し。検査が一致を見る）
-supabase/functions/koma-milestones/  🗓 ライフログの表 milestones・milestone_logs を読む／足す／直す／消す（写真の列には書かない・消すときだけ `<uuid>.jpg` の実体を消す。**本番は v2・v3＝⏱ 記録ログの時刻は置き直し待ち**＝ライフログの migration を先に当てる）
+supabase/functions/koma-milestones/  🗓 ライフログの表 milestones・milestone_logs を読む／足す／直す／消す（写真の列には書かない・消すときだけ `<uuid>.jpg` の実体を消す。**本番は v3＝⏱ 記録ログの はじめ・おわり・かかった時間も読み書きする**（2026-09-28 に置いた）＝ライフログの migration が先に要る）
 capacitor.config.json, codemagic.yaml, ios/   iOS の殻（Phase 1）
 .claude/launch.json     dev サーバ（port 5276）
 ```
